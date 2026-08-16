@@ -1,46 +1,49 @@
 # canoscan
 
-Canon liefert für den CanoScan 8600F keine Treiber mehr. Weder für
-aktuelles macOS noch für Windows 11. Der Scanner selbst ist aber ein
-gutes Stück Hardware, mit Durchlichteinheit und Infrarot-Lampe für die
-Kratzererkennung. Dieses Repo hält ihn am Leben.
+Canon stopped shipping drivers for the CanoScan 8600F years ago. No
+current macOS support, no Windows 11 support. The scanner itself is
+still a fine piece of hardware, with a transparency unit and an
+infrared lamp for dust detection. This repo keeps it alive.
 
-Der Stack besteht aus drei Teilen. Ein selbst kompiliertes
-SANE-genesys-Backend als Treiber. Eine CLI und eine GUI zum Scannen.
-Ein GIMP-3-Plugin, das alle Treiberoptionen direkt in GIMP anbietet.
-Läuft auf macOS (Apple Silicon) und Windows 11.
+The stack has three parts. A self-compiled SANE genesys backend as the
+driver. A CLI and a GUI for scanning. A GIMP 3 plugin that exposes
+every driver option inside GIMP. Runs on macOS (Apple Silicon) and
+Windows 11.
 
-## Was es kann
+## What it does
 
-- Flachbett und Durchlicht (Film und Dia), 300 bis 4800 dpi
-- Farbe oder Graustufen, TIFF, PNG und JPEG
-- Kratzer- und Staubentfernung über den Infrarot-Kanal, nach dem
-  gleichen Prinzip wie SilverFast iSRD
-- Automatische Erkennung von Fotos und Dokumenten auf dem Flachbett,
-  mit Zuschnitt auf die tatsächliche Größe
-- Mehrere aufgelegte Fotos in einem Durchgang, jedes als eigene Datei
+- Flatbed and transparency (film and slides), 300 to 4800 dpi
+- Color or grayscale, TIFF, PNG and JPEG
+- Dust and scratch removal via the infrared channel, same principle
+  as SilverFast iSRD
+- Negative inversion with per-channel stretch against the orange mask
+- 16-bit archival TIFF
+- Automatic detection of photos and documents on the flatbed, cropped
+  to their actual size
+- Several photos in one pass, each saved as its own file
 
-## Installation macOS
+## Install on macOS
 
-Fertiges Paket: `./scripts/package_dmg.sh` baut die DMG nach
-`build/CanoScan8600F.dmg`. In der DMG liegt ein `install.sh`, das
-Treiber, CLI und App nach `/usr/local/canoscan8600f` und `/Applications`
-installiert.
+Prebuilt: grab `CanoScan8600F.dmg` from the latest release, mount it,
+double-click `CanoScan8600F.pkg`. That installs the driver to
+`/usr/local/canoscan8600f`, the app to `/Applications` and the
+`scan8600` CLI symlink.
 
-Aus dem Quellcode:
+From source:
 
     ./build_sane.sh
     python3 -m venv .venv
     .venv/bin/pip install pytest pillow numpy opencv-python PySide6
 
-## Installation Windows 11
+## Install on Windows 11
 
-Der GitHub-Actions-Workflow `windows-exe.yml` baut das komplette Paket
-auf einem Windows-Runner. Details und die Zadig-Treiberbindung stehen in
-`docs/WINDOWS.md`. Auf echter Windows-Hardware ist das Paket noch
-ungetestet.
+Grab `CanoScan8600F-windows.zip` from the latest release, unpack it,
+follow the Zadig driver binding steps in `docs/WINDOWS.md`, then run
+`CanoScan8600F.exe`. Tested on real Windows 11 hardware. The CI
+workflow `windows-exe.yml` rebuilds the whole package on a Windows
+runner, including the MinGW-patched driver build.
 
-## Scannen
+## Scanning
 
 GUI:
 
@@ -49,53 +52,60 @@ GUI:
 CLI:
 
     .venv/bin/python scan8600.py --mode flatbed
-    .venv/bin/python scan8600.py --mode film --dpi 2400 --descratch
+    .venv/bin/python scan8600.py --mode film --dpi 2400 --descratch --negative
     .venv/bin/python scan8600.py --mode flatbed --autocrop --split
 
-Die wichtigsten Optionen:
+The options that matter:
 
-    --dpi N                  Auflösung, Standard 300 Flachbett, 1200 Film
-    --gray                   Graustufen statt Farbe
-    --format tiff|png|jpeg   Ausgabeformat, Standard tiff
-    --output PATH            Zieldatei
-    --descratch              Infrarot-Pass plus Inpainting, nur Film
-    --autocrop               Größe automatisch erkennen und zuschneiden
-    --split                  jedes erkannte Foto als eigene Datei
-    --sane-opt OPT=WERT      jede weitere Treiberoption durchreichen
+    --dpi N                  resolution, default 300 flatbed, 1200 film
+    --gray                   grayscale instead of color
+    --format tiff|png|jpeg   output format, default tiff
+    --output PATH            target file
+    --descratch              infrared pass plus inpainting, film only
+    --negative               invert negatives, orange mask compensated
+    --depth16                16-bit archival TIFF, plain scans only
+    --autocrop               detect content and crop to size
+    --split                  save each detected photo as its own file
+    --sane-opt OPT=VALUE     pass any further driver option through
 
-## GIMP-Plugin
+The first scan calibrates the scanner and takes longer. Calibration
+data lives in `~/.sane`.
 
-Liegt unter `gimp/`, Installation steht in `gimp/INSTALL.md`. Das Plugin
-liest die Optionen zur Laufzeit aus dem Treiber aus. Was der Treiber
-kann, zeigt das Plugin an. Mangels GIMP auf dem Entwicklungsrechner ist
-es ungetestet, die Options-Logik dahinter ist über Unit-Tests abgedeckt.
+## GIMP plugin
 
-## Grenzen, ehrlich benannt
+Lives in `gimp/`, install steps in `gimp/INSTALL.md`. The plugin reads
+the available options from the driver at runtime. Whatever the driver
+can do, the plugin shows. The plugin itself has not been smoke-tested
+inside GIMP yet, its option logic is covered by unit tests.
 
-- Weißes Dokument auf weißem Deckel erkennt der Autocrop schlecht.
-  Kontrastreiche Auflage hilft, etwa schwarzes Tonpapier.
-- Die Durchlichtqualität des genesys-Backends liegt unter VueScan-Niveau.
-  Dafür gehört hier der komplette Stack Dir.
-- Der erste Scan kalibriert und dauert deshalb länger.
+## Honest limits
+
+- White documents on the white lid confuse the autocrop. A high
+  contrast backing helps, black paper works.
+- Transparency quality of the genesys backend sits below VueScan
+  level. In return you own the whole stack.
+- Infrared dust removal cannot work on silver-based B/W film or
+  Kodachrome. Silver blocks infrared. That is physics, not a bug.
 
 ## Tests
 
     .venv/bin/python -m pytest tests/ -q
 
-30 Tests, dazu Hardware-Tests für Erkennung, Flachbett und Durchlicht
-mit Kratzerentfernung.
+35 tests, plus hardware runs for detection, flatbed, transparency
+with scratch removal, negative inversion and 16-bit output.
 
-## Lizenz
+## License
 
-Eigener Code steht unter MIT. sane-backends wird beim Build von
-gitlab.com/sane-project geladen und steht unter der GPL. Wer die
-fertige DMG oder das Windows-Paket weitergibt, gibt damit auch
-GPL-Binaries weiter und muss deren Quellcode zugänglich machen.
+Own code is MIT. sane-backends is fetched at build time from
+gitlab.com/sane-project and is GPL licensed. If you redistribute the
+DMG or the Windows package you are shipping GPL binaries and must
+provide access to their source.
 
-## Doku
+## Docs
 
 - Spec: `docs/superpowers/specs/2026-08-16-canoscan-8600f-design.md`
 - Plan: `docs/superpowers/plans/2026-08-16-canoscan-8600f.md`
 - Windows: `docs/WINDOWS.md`
 
-Alte Hardware stirbt nicht am Gerät, sie stirbt am fehlenden Treiber.
+Old hardware does not die with the device. It dies with the missing
+driver.

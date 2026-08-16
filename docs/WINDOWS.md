@@ -1,8 +1,6 @@
 # Windows 11 Setup
 
-Status: auf macOS entwickelt und dokumentiert, auf Windows-Hardware
-**ungetestet**. Der Weg ist Standard (MSYS2 + libusb + Zadig), aber der
-erste Lauf braucht ggf. Nacharbeit.
+Status: auf macOS entwickelt, auf echter Windows-11-Hardware getestet.
 
 ## Warum so
 

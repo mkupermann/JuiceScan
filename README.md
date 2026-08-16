@@ -29,6 +29,13 @@ Windows 11.
 - Several photos in one pass, each saved as its own file
 - Calibration runs once per resolution and stays cached, not on every
   scan
+- Scanner device selection with discovery, ready for multiple scanners
+- Batch scan mode for sequential frames with automatic numbering
+- HDR multi-exposure: two passes at different exposure, merged for
+  dense negatives (new, not yet verified on hardware)
+- Lamp warm-up guard: optional delay before color film scans so the
+  cold lamp cannot tint the image (new, not yet verified on hardware)
+- Settings and presets persist between sessions
 
 ## Install on macOS
 

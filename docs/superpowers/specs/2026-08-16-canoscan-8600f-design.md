@@ -76,7 +76,35 @@ Zieldatei.
 - TPU-Scanqualität des genesys-Backends ist unter VueScan-Niveau —
   akzeptiert, Ziel ist ein eigener, offener Stack.
 
+## Erweiterung (2026-08-16, User-Anforderung)
+
+### Kratzer-/Staubentfernung (wie SilverFast iSRD)
+
+Der 8600F hat eine Infrarot-Lampe (FARE). genesys bietet die Quelle
+"Transparency Adapter Infrared". Flag `--descratch` (nur film-Modus):
+
+1. Normaler Durchlicht-Scan (sichtbares Licht).
+2. Zweiter Pass mit IR-Quelle, gleiche Auflösung/Fläche.
+3. Defektmaske: IR-Pixel unter Schwellwert (Kratzer/Staub blocken IR),
+   plus Dilatation (2 px) gegen Pass-Versatz.
+4. Inpainting der maskierten Bereiche im sichtbaren Bild (OpenCV, TELEA).
+
+Modul `descratch.py`, Abhängigkeiten dafür: numpy + opencv-python.
+Bekannte Grenze: leichter mechanischer Versatz zwischen den zwei Lampen-
+Passes; Dilatation fängt das ab, Perfektion à la SilverFast ist nicht Ziel.
+
+### Windows 11-Version
+
+Gleicher Stack, gleicher Code: sane-backends lässt sich unter MSYS2/mingw64
+mit libusb bauen; der Scanner wird unter Windows per Zadig auf den
+WinUSB-Treiber gebunden (04a9:2229), dann spricht libusb das Gerät direkt an.
+`scan8600.py` und `descratch.py` sind plattformneutral (Pfad-Erkennung:
+`scanimage.exe` unter Windows). Deliverables: `build_sane_win.sh`
+(MSYS2-Skript), `docs/WINDOWS.md` (MSYS2-Setup, Zadig-Anleitung).
+Hinweis: auf diesem Mac nicht hardware-testbar; wird als ungetestet markiert.
+
 ## Nicht-Ziele (YAGNI)
 
-Keine GUI, kein Mehrseiten-/Batch-Management, keine Infrarot-Staubentfernung,
-kein System-Install, keine Unterstützung anderer Scanner.
+Keine GUI, kein Mehrseiten-/Batch-Management, kein System-Install,
+keine Unterstützung anderer Scanner, kein Batch-/Rahmen-Management für
+Filmstreifen.

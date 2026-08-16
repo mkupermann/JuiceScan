@@ -219,7 +219,9 @@ class MainWindow(QWidget):
         self.btn_scan.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.progress.setRange(0, 0)
-        self.status.setText("Scanning… (first run calibrates and takes longer)")
+        self.status.setText(
+            "Scanning… (a new resolution or color mode calibrates once, "
+            "then it is cached)")
         a = self.build_args()
         self._wanted = a
         if a.mode == "film" and not a.depth16:

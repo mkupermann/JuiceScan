@@ -18,6 +18,9 @@ Three parts. A self-compiled SANE driver backend. A CLI and a GUI. A
 GIMP 3 plugin that shows every option the driver has. macOS on Apple
 Silicon and Windows 11.
 
+<img width="3398" height="2122" alt="image" src="https://github.com/user-attachments/assets/6c57a956-7c01-4159-8a9c-d1687124ea88" />
+
+
 ## What it does
 
 - Flatbed at 300 to 1200 dpi, transparency at 300 to 4800 dpi

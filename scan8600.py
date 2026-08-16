@@ -29,6 +29,11 @@ DEFAULT_DPI = {"flatbed": 300, "film": 2400}
 
 def parse_args(argv):
     p = argparse.ArgumentParser(prog="scan8600")
+    p.add_argument("--device", default=None,
+                   help="SANE device name (e.g., genesys:libusb:001:014). "
+                        "If not specified, uses the first available device.")
+    p.add_argument("--list-devices", action="store_true",
+                   help="List all available SANE scanners and exit.")
     p.add_argument("--mode", required=True, choices=["flatbed", "film"])
     p.add_argument("--dpi", type=int)
     p.add_argument("--format", choices=["tiff", "png", "jpeg"], default="tiff")
@@ -73,7 +78,7 @@ def default_output(a):
     return f"scan_{stamp}.{ext}"
 
 
-def build_command(a, source_name):
+def build_command(a, source_name, device=None):
     # Reihenfolge ist bedeutsam: scanimage wertet Optionen sequenziell
     # aus. Die Quelle muss VOR der Auflösung stehen, sonst wird die
     # Auflösung gegen die Liste der Standardquelle geprüft und still
@@ -81,6 +86,13 @@ def build_command(a, source_name):
     # 4-MB-Puffer statt 32 KB Standard: weniger USB-Transaktionen,
     # messbar ruhigerer Durchsatz bei Hochauflösungs-Scans.
     cmd = [str(SCANIMAGE), "--format=tiff", "--buffer-size=4096"]
+    
+    # Add device if specified
+    if device:
+        cmd += ["-d", device]
+    elif getattr(a, "device", None):
+        cmd += ["-d", a.device]
+    
     if source_name:
         cmd += ["--source", source_name]
     cmd += ["--resolution", str(a.dpi),
@@ -134,14 +146,33 @@ def find_ir_source(options_text):
     return _pick_source(options_text, r"infrared|\bir\b")
 
 
+def find_film_source_general(options_text):
+    """Find film/transparency source for general SANE scanners."""
+    return _pick_source(options_text, r"transparen|film|\bta\b")
+
+
+def _probe_device_options(device_file, retries=3):
+    """Probe options for a specific device."""
+    import time
+    for attempt in range(retries):
+        probe = scanimage_run([str(SCANIMAGE), "-A", "-d", device_file])
+        opts = probe.stdout.decode(errors="replace")
+        if probe.returncode == 0 and "--source" in opts:
+            return opts
+        if attempt < retries - 1:
+            time.sleep(3)
+    raise ScanError(BUSY_HINT + "\nDetails:\n"
+                    + probe.stderr.decode(errors="replace"))
+
+
 def scanimage_run(cmd, **kw):
     import os
     env = dict(os.environ, **SANE_ENV)
     return subprocess.run(cmd, env=env, capture_output=True, **kw)
 
 
-def _run_pass(a, source, retries=1):
-    r = scanimage_run(build_command(a, source))
+def _run_pass(a, source, device=None, retries=1):
+    r = scanimage_run(build_command(a, source, device))
     if r.returncode != 0:
         err = r.stderr.decode(errors="replace")
         if "no SANE devices" in err:
@@ -153,7 +184,7 @@ def _run_pass(a, source, retries=1):
             # kurz warten, einmal neu versuchen.
             import time
             time.sleep(5)
-            return _run_pass(a, source, retries - 1)
+            return _run_pass(a, source, device, retries - 1)
         raise ScanError(err)
     return r.stdout
 
@@ -186,11 +217,27 @@ def run_scan(a):
             f"Driver not found at {SCANIMAGE}. Install the pkg from the DMG "
             "first (installs to /usr/local/canoscan8600f) or point "
             "SCAN8600_PREFIX at the driver folder.")
+    
+    # Get device info if not specified
+    device = getattr(a, "device", None)
+    if device is None:
+        # Try to auto-detect the first available device
+        from discovery import get_default_scanner
+        default_dev = get_default_scanner()
+        if default_dev:
+            device = default_dev.device_file
+    
     out = pathlib.Path(a.output or default_output(a))
     source = ir_source = None
+    
+    # Probe device options to find available sources
+    opts = _probe_device_options(device) if device else _probe_options()
+    
     if a.mode == "film":
-        opts = _probe_options()
         source = find_film_source(opts)
+        if source is None and device:
+            # For general SANE scanners, try to find transparency/film source
+            source = find_film_source_general(opts)
         if source is None:
             raise ScanError(
                 "No transparency source found. Available options:\n"
@@ -201,7 +248,8 @@ def run_scan(a):
                 raise ScanError(
                     "No infrared source found for --descratch. "
                     "Available options:\n" + opts)
-    tiff_bytes = _run_pass(a, source)
+    
+    tiff_bytes = _run_pass(a, source, device)
     cleaned = None
     if ir_source:
         import io
@@ -212,7 +260,7 @@ def run_scan(a):
         import descratch as _ds
         ir_args = argparse.Namespace(**vars(a))
         ir_args.gray = True
-        ir_bytes = _run_pass(ir_args, ir_source)
+        ir_bytes = _run_pass(ir_args, ir_source, device)
         vis = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
         ir = np.array(Image.open(io.BytesIO(ir_bytes)).convert("L"))
         if _ds.is_silver_film(vis, ir):
@@ -414,6 +462,21 @@ def _finalize(tiff_bytes, cleaned, a, out):
 
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
+    
+    # Handle --list-devices
+    if a.list_devices:
+        from discovery import list_scanners
+        devices = list_scanners()
+        if not devices:
+            print("No SANE scanners found.", file=sys.stderr)
+            return 1
+        print("Available SANE scanners:")
+        for i, device in enumerate(devices, 1):
+            status = f" [{device.support_status}]" if device.support_status != "untested" else ""
+            print(f"  {i}. {device.name} ({device.backend}){status}")
+            print(f"     Device: {device.device_file}")
+        return 0
+    
     try:
         outs = run_scan(a)
     except ScanError as e:

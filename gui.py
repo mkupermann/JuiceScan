@@ -96,6 +96,27 @@ class MainWindow(QWidget):
         # Linke Spalte: Einstellungen
         left = QVBoxLayout()
         
+        # ===== DEVICE SELECTION =====
+        device_box = QGroupBox("Scanner Device")
+        device_layout = QVBoxLayout(device_box)
+        
+        # Device selection combo box
+        self.cb_device = QComboBox()
+        self.btn_refresh_devices = QPushButton("Refresh")
+        self.btn_refresh_devices.clicked.connect(self.refresh_devices)
+        
+        device_top_layout = QHBoxLayout()
+        device_top_layout.addWidget(self.cb_device, 1)
+        device_top_layout.addWidget(self.btn_refresh_devices)
+        device_layout.addLayout(device_top_layout)
+        
+        # Device info label
+        self.lbl_device_info = QLabel("No scanner detected")
+        self.lbl_device_info.setWordWrap(True)
+        device_layout.addWidget(self.lbl_device_info)
+        
+        left.addWidget(device_box)
+        
         # ===== PRESETS =====
         presets_box = QGroupBox("Presets")
         presets_layout = QHBoxLayout(presets_box)
@@ -392,6 +413,9 @@ class MainWindow(QWidget):
         for w in (self.ck_descratch, self.ck_negative, self.ck_autocrop):
             w.toggled.connect(self.sync_depth16)
         
+        # Geräte laden
+        self.refresh_devices()
+        
         # Einstellungen laden und Preset anwenden
         self.load_settings()
         # sync_mode muss nach load_settings aufgerufen werden, da DPI-Optionen vom Modus abhängen
@@ -418,6 +442,41 @@ class MainWindow(QWidget):
         if m != "film":
             self.ck_descratch.setChecked(False)
         self.sync_split()
+    
+    def refresh_devices(self):
+        """Aktualisiert die Liste der verfügbaren Scanner."""
+        try:
+            from discovery import list_scanners
+            devices = list_scanners()
+            
+            self.cb_device.clear()
+            if not devices:
+                self.cb_device.addItem("No scanners found")
+                self.lbl_device_info.setText("No SANE scanners detected. "
+                                          "Please install SANE drivers and connect a scanner.")
+                return
+            
+            for device in devices:
+                status = f" ({device.support_status})" if device.support_status != "untested" else ""
+                self.cb_device.addItem(f"{device.name}{status}", userData=device.device_file)
+            
+            # Setze erstes Gerät als Standard
+            if devices:
+                self.cb_device.setCurrentIndex(0)
+                self._update_device_info(devices[0])
+            
+        except Exception as e:
+            self.cb_device.addItem("Error loading scanners")
+            self.lbl_device_info.setText(f"Error: {e}")
+    
+    def _update_device_info(self, device):
+        """Aktualisiert die Geräteinformationen."""
+        info_parts = [
+            f"Backend: {device.backend}",
+            f"Type: {device.type}",
+            f"Status: {device.support_status}",
+        ]
+        self.lbl_device_info.setText(" | ".join(info_parts))
     
     def toggle_custom_area(self, state):
         """Zeigt/versteckt die manuellen Bereichs-Einstellungen."""
@@ -506,6 +565,11 @@ class MainWindow(QWidget):
                 f"y={self.sp_area_height.value():.1f}",
             ])
         
+        # Geräteauswahl
+        device = None
+        if self.cb_device.count() > 0 and self.cb_device.currentIndex() >= 0:
+            device = self.cb_device.currentData()
+        
         return argparse.Namespace(
             mode=self.mode(),
             dpi=int(self.cb_dpi.currentText()),
@@ -520,6 +584,7 @@ class MainWindow(QWidget):
             frames=self.sp_frames.value(),
             sane_opt=sane_opts,
             denoise=self.slider_denoise.value(),
+            device=device,
         )
     
     # --- PERSISTENCE ------------------------------------------------------------
@@ -529,6 +594,9 @@ class MainWindow(QWidget):
             try:
                 with open(CONFIG_FILE) as f:
                     settings = json.load(f)
+                
+                # Geräteauswahl (wird nach dem Laden der Geräte angewendet)
+                selected_device = settings.get("device")
                 
                 # Grundeinstellungen
                 if "mode" in settings:
@@ -617,8 +685,37 @@ class MainWindow(QWidget):
             except Exception as e:
                 print(f"Error loading settings: {e}")
     
+    def showEvent(self, event):
+        """Wird aufgerufen, wenn das Fenster angezeigt wird."""
+        # Geräteauswahl nach dem Laden aller Einstellungen setzen
+        if hasattr(self, '_pending_device') and self._pending_device:
+            self._select_device(self._pending_device)
+            del self._pending_device
+        super().showEvent(event)
+    
+    def _select_device(self, device_file):
+        """Wählt ein Gerät aus der Dropdown-Liste aus."""
+        if not device_file:
+            return
+        for i in range(self.cb_device.count()):
+            if self.cb_device.itemData(i) == device_file:
+                self.cb_device.setCurrentIndex(i)
+                # Update device info
+                from discovery import list_scanners
+                devices = list_scanners()
+                for dev in devices:
+                    if dev.device_file == device_file:
+                        self._update_device_info(dev)
+                        break
+                return
+    
     def save_settings(self):
         """Speichert Einstellungen in die Config-Datei."""
+        # Geräteauswahl speichern
+        device = None
+        if self.cb_device.count() > 0 and self.cb_device.currentIndex() >= 0:
+            device = self.cb_device.currentData()
+        
         settings = {
             "mode": self.mode(),
             "color": self.cb_color.currentText(),
@@ -627,6 +724,7 @@ class MainWindow(QWidget):
             "output_dir": self.ed_dir.text(),
             "filename_pattern": self.ed_filename_pattern.text(),
             "descratch": self.ck_descratch.isChecked(),
+            "device": device,
             "negative": self.ck_negative.isChecked(),
             "autocrop": self.ck_autocrop.isChecked(),
             "split": self.ck_split.isChecked(),

@@ -228,16 +228,41 @@ def run_scan(a):
 
 def _save_array(arr, a, path):
     from PIL import Image
-    img = Image.fromarray(arr)
-    if a.format == "jpeg":
-        img.save(path, quality=95)
+    
+    # For 16-bit arrays, we need to use the correct mode
+    if arr.dtype == np.uint16:
+        # For TIFF, we can save 16-bit directly
+        if a.format == "tiff":
+            img = Image.fromarray(arr, mode='I;16')
+            img.save(path)
+        else:
+            # For JPEG/PNG, convert to 8-bit
+            arr_8bit = (arr / 256).astype(np.uint8)
+            img = Image.fromarray(arr_8bit)
+            if a.format == "jpeg":
+                img.save(path, quality=95)
+            else:
+                img.save(path)
     else:
-        img.save(path)
+        # 8-bit array
+        img = Image.fromarray(arr)
+        if a.format == "jpeg":
+            img.save(path, quality=95)
+        else:
+            img.save(path)
 
 
 def invert_negative(arr):
     import numpy as np
-    inv = (255 - arr).astype(np.float32)
+    # Detect if 16-bit (uint16) or 8-bit
+    is_16bit = arr.dtype == np.uint16
+    max_val = 65535 if is_16bit else 255
+    
+    if is_16bit:
+        inv = (max_val - arr).astype(np.float32)
+    else:
+        inv = (max_val - arr).astype(np.float32)
+    
     if inv.ndim == 3:
         # Grauwelt-Abgleich: Farbstiche der Lampe (kalte Lampe scannt
         # rötlich, invertiert grünlich) auf neutrales Grau ziehen.
@@ -246,18 +271,77 @@ def invert_negative(arr):
         for c in range(inv.shape[2]):
             if means[c] > 1:
                 inv[..., c] *= target / means[c]
-        inv = np.clip(inv, 0, 255)
+        inv = np.clip(inv, 0, max_val)
         # Eine gemeinsame Streckung ueber die Luminanz statt pro Kanal,
         # sonst zerlegt die Streckung den Grauwelt-Abgleich wieder.
         gray = inv.mean(axis=2)
         lo, hi = np.percentile(gray, 1), np.percentile(gray, 99)
         if hi > lo:
-            inv = np.clip((inv - lo) * 255.0 / (hi - lo), 0, 255)
-    return inv.astype(np.uint8)
+            inv = np.clip((inv - lo) * max_val / (hi - lo), 0, max_val)
+    
+    if is_16bit:
+        return inv.astype(np.uint16)
+    else:
+        return inv.astype(np.uint8)
+
+
+def denoise(arr, strength=10):
+    """Wendet Non-Local Means Denoising auf das Bild an.
+    
+    Args:
+        arr: numpy Array (H x W x 3 für RGB oder H x W für Grayscale)
+        strength: Stärke der Denoising (0-100, höher = stärker)
+    
+    Returns:
+        Denoised numpy Array
+    """
+    import cv2
+    import numpy as np
+    
+    if strength <= 0:
+        return arr
+    
+    # Detect if 16-bit
+    is_16bit = arr.dtype == np.uint16
+    
+    # OpenCV requires 8-bit for denoising, so convert if needed
+    if is_16bit:
+        # Scale to 8-bit for processing
+        arr_8bit = (arr / 256).astype(np.uint8)
+    else:
+        arr_8bit = arr
+    
+    if arr_8bit.ndim == 3:
+        # Farbe: Konvertiere zu LAB für bessere Denoising-Ergebnisse
+        lab = cv2.cvtColor(arr_8bit, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # Denoising auf jeden Kanal anwenden
+        h = max(1, strength * 10)
+        l = cv2.fastNlMeansDenoising(l.astype(np.uint8), None, h=h, 
+                                     templateWindowSize=7, searchWindowSize=21)
+        a = cv2.fastNlMeansDenoising(a.astype(np.uint8), None, h=h, 
+                                     templateWindowSize=7, searchWindowSize=21)
+        b = cv2.fastNlMeansDenoising(b.astype(np.uint8), None, h=h, 
+                                     templateWindowSize=7, searchWindowSize=21)
+        
+        result = cv2.merge((l, a, b))
+        result = cv2.cvtColor(result, cv2.COLOR_LAB2RGB)
+    else:
+        # Grayscale
+        result = cv2.fastNlMeansDenoising(arr_8bit.astype(np.uint8), None, 
+                                       h=max(1, strength * 10),
+                                       templateWindowSize=7, searchWindowSize=21)
+    
+    # Convert back to 16-bit if needed
+    if is_16bit:
+        return (result.astype(np.float32) * 256).astype(np.uint16)
+    else:
+        return result
 
 
 def _finalize(tiff_bytes, cleaned, a, out):
-    plain = a.format == "tiff" and not a.autocrop and not a.negative
+    plain = a.format == "tiff" and not a.autocrop and not a.negative and not a.depth16
     if cleaned is None and plain:
         out.write_bytes(tiff_bytes)
         return [out]
@@ -265,10 +349,26 @@ def _finalize(tiff_bytes, cleaned, a, out):
 
     import numpy as np
     from PIL import Image
+    
+    # For 16-bit mode, load as 16-bit
+    use_16bit = getattr(a, "depth16", False)
+    
     if cleaned is None:
-        arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
+        if use_16bit:
+            # Load as 16-bit (PIL will auto-detect the mode from TIFF)
+            img = Image.open(io.BytesIO(tiff_bytes))
+            # If the image is already 16-bit, keep it that way
+            if img.mode in ('I;16', 'I;16B', 'I;16L'):
+                arr = np.array(img)
+            else:
+                # Convert to 16-bit
+                img_16 = img.convert('I;16')
+                arr = np.array(img_16)
+        else:
+            arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
     else:
         arr = cleaned
+    
     # Reihenfolge: erst zuschneiden, dann invertieren. Bei Film erkennt
     # die Rahmensuche auf dem Rohscan (helle Filmbasis), und jedes Frame
     # bekommt seine eigene Tonwert-Streckung.
@@ -283,6 +383,10 @@ def _finalize(tiff_bytes, cleaned, a, out):
             for i, crop in enumerate(crops, 1):
                 if a.negative:
                     crop = invert_negative(crop)
+                # Denoising anwenden
+                denoise_strength = getattr(a, "denoise", 0)
+                if denoise_strength > 0:
+                    crop = denoise(crop, denoise_strength)
                 p = (out.with_stem(f"{out.stem}_{i}")
                      if len(crops) > 1 else out)
                 _save_array(crop, a, p)
@@ -300,6 +404,10 @@ def _finalize(tiff_bytes, cleaned, a, out):
             arr = _ac.crop_to_content(arr)
     if a.negative:
         arr = invert_negative(arr)
+    # Denoising anwenden (für nicht-gesplittete Bilder)
+    denoise_strength = getattr(a, "denoise", 0)
+    if denoise_strength > 0:
+        arr = denoise(arr, denoise_strength)
     _save_array(arr, a, out)
     return [out]
 

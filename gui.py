@@ -242,6 +242,21 @@ class MainWindow(QWidget):
         )
         adv_layout.addLayout(sharpness_layout)
         
+        # Denoise
+        denoise_layout = QHBoxLayout()
+        denoise_layout.addWidget(QLabel("Denoise:"))
+        self.slider_denoise = QSlider(Qt.Horizontal)
+        self.slider_denoise.setRange(0, 100)
+        self.slider_denoise.setValue(0)
+        self.lbl_denoise = QLabel("0")
+        self.lbl_denoise.setMinimumWidth(40)
+        denoise_layout.addWidget(self.slider_denoise)
+        denoise_layout.addWidget(self.lbl_denoise)
+        self.slider_denoise.valueChanged.connect(
+            lambda v: self.lbl_denoise.setText(str(v))
+        )
+        adv_layout.addLayout(denoise_layout)
+        
         left.addWidget(adv_box)
         
         # ===== CALIBRATION CACHE =====
@@ -251,6 +266,59 @@ class MainWindow(QWidget):
         self.btn_clear_cache.clicked.connect(self.clear_calibration_cache)
         cache_layout.addWidget(self.btn_clear_cache)
         left.addWidget(cache_box)
+        
+        # ===== BATCH SCAN =====
+        batch_box = QGroupBox("Batch Scan")
+        batch_layout = QHBoxLayout(batch_box)
+        self.ck_batch_mode = QCheckBox("Enable")
+        self.ck_batch_mode.stateChanged.connect(self.toggle_batch_mode)
+        batch_layout.addWidget(self.ck_batch_mode)
+        batch_layout.addWidget(QLabel("Scans:"))
+        self.sp_batch_count = QSpinBox()
+        self.sp_batch_count.setRange(1, 10)
+        self.sp_batch_count.setValue(1)
+        batch_layout.addWidget(self.sp_batch_count)
+        left.addWidget(batch_box)
+        
+        # ===== LAMP WARM-UP =====
+        lamp_box = QGroupBox("Lamp Warm-up")
+        lamp_layout = QVBoxLayout(lamp_box)
+        self.ck_lamp_warmup = QCheckBox("Warm up lamp before color scans")
+        self.ck_lamp_warmup.stateChanged.connect(self.toggle_lamp_warmup)
+        lamp_layout.addWidget(self.ck_lamp_warmup)
+        
+        # Warm-up duration
+        lamp_duration_layout = QHBoxLayout()
+        lamp_duration_layout.addWidget(QLabel("Warm-up time (sec):"))
+        self.sp_lamp_duration = QSpinBox()
+        self.sp_lamp_duration.setRange(5, 60)
+        self.sp_lamp_duration.setValue(10)
+        lamp_duration_layout.addWidget(self.sp_lamp_duration)
+        lamp_layout.addLayout(lamp_duration_layout)
+        left.addWidget(lamp_box)
+        
+        # ===== HDR SCANNING =====
+        hdr_box = QGroupBox("HDR (Multi-Exposure)")
+        hdr_layout = QVBoxLayout(hdr_box)
+        self.ck_hdr_mode = QCheckBox("Enable HDR (2 exposures)")
+        self.ck_hdr_mode.stateChanged.connect(self.toggle_hdr_mode)
+        hdr_layout.addWidget(self.ck_hdr_mode)
+        
+        # Exposure compensation for the second exposure
+        hdr_comp_layout = QHBoxLayout()
+        hdr_comp_layout.addWidget(QLabel("2nd Exposure Comp.:"))
+        self.slider_hdr_comp = QSlider(Qt.Horizontal)
+        self.slider_hdr_comp.setRange(-100, 100)
+        self.slider_hdr_comp.setValue(50)
+        self.lbl_hdr_comp = QLabel("+1.5 EV")
+        self.lbl_hdr_comp.setMinimumWidth(60)
+        hdr_comp_layout.addWidget(self.slider_hdr_comp)
+        hdr_comp_layout.addWidget(self.lbl_hdr_comp)
+        hdr_layout.addLayout(hdr_comp_layout)
+        
+        # Connect slider to label
+        self.slider_hdr_comp.valueChanged.connect(self.update_hdr_comp_label)
+        left.addWidget(hdr_box)
 
         self.btn_scan = QPushButton("Scan")
         self.btn_scan.setObjectName("scanButton")
@@ -356,28 +424,42 @@ class MainWindow(QWidget):
         for widget in [self.sp_area_left, self.sp_area_top, 
                       self.sp_area_width, self.sp_area_height]:
             widget.setEnabled(state == Qt.Checked)
+    
+    def toggle_batch_mode(self, state):
+        """Aktiviert/Deaktiviert den Batch-Modus."""
+        self.sp_batch_count.setEnabled(state == Qt.Checked)
+    
+    def toggle_hdr_mode(self, state):
+        """Aktiviert/Deaktiviert den HDR-Modus."""
+        self.slider_hdr_comp.setEnabled(state == Qt.Checked)
+        self.lbl_hdr_comp.setEnabled(state == Qt.Checked)
+    
+    def toggle_lamp_warmup(self, state):
+        """Aktiviert/Deaktiviert den Lamp Warm-up."""
+        self.sp_lamp_duration.setEnabled(state == Qt.Checked)
+    
+    def update_hdr_comp_label(self, value):
+        """Aktualisiert das EV-Label basierend auf dem Slider-Wert."""
+        # Map slider value (-100 to 100) to EV (-3 to +3)
+        ev = value / 100 * 3
+        self.lbl_hdr_comp.setText(f"{ev:+.1f} EV")
 
     def sync_depth16(self):
-        # 16 Bit liefert das rohe Treiber-TIFF, jede Nachbearbeitung
-        # würde auf 8 Bit reduzieren. Beides zugleich geht nicht.
-        processing = (self.ck_descratch.isChecked()
-                      or self.ck_negative.isChecked()
-                      or self.ck_autocrop.isChecked())
-        self.ck_depth16.setEnabled(not processing)
+        # 16 Bit kann nun mit Nachbearbeitung kombiniert werden,
+        # aber nur für TIFF-Format (JPEG/PNG unterstützen kein 16-Bit)
         if self.ck_depth16.isChecked():
-            for w in (self.ck_descratch, self.ck_negative,
-                      self.ck_autocrop, self.ck_split):
-                w.setChecked(False)
-                w.setEnabled(False)
+            # Erzwinge TIFF-Format
             self.cb_format.setCurrentText("tiff")
             self.cb_format.setEnabled(False)
         else:
             self.cb_format.setEnabled(True)
-            m = self.mode()
-            self.ck_descratch.setEnabled(m == "film")
-            self.ck_negative.setEnabled(m == "film")
-            self.ck_autocrop.setEnabled(True)
-            self.sync_split()
+        
+        # Aktualisiere die Verfügbarkeit der Verarbeitungsoptionen
+        m = self.mode()
+        self.ck_descratch.setEnabled(m == "film")
+        self.ck_negative.setEnabled(m == "film")
+        self.ck_autocrop.setEnabled(True)
+        self.sync_split()
 
     def sync_split(self):
         self.ck_split.setEnabled(self.ck_autocrop.isChecked())
@@ -437,6 +519,7 @@ class MainWindow(QWidget):
             depth16=self.ck_depth16.isChecked(),
             frames=self.sp_frames.value(),
             sane_opt=sane_opts,
+            denoise=self.slider_denoise.value(),
         )
     
     # --- PERSISTENCE ------------------------------------------------------------
@@ -484,6 +567,8 @@ class MainWindow(QWidget):
                     self.slider_contrast.setValue(settings["contrast"])
                 if "sharpness" in settings:
                     self.slider_sharpness.setValue(settings["sharpness"])
+                if "denoise" in settings:
+                    self.slider_denoise.setValue(settings["denoise"])
                 
                 # Transform
                 if "rotation" in settings:
@@ -492,6 +577,24 @@ class MainWindow(QWidget):
                     self.ck_mirror_horizontal.setChecked(settings["mirror_horizontal"])
                 if "mirror_vertical" in settings:
                     self.ck_mirror_vertical.setChecked(settings["mirror_vertical"])
+                
+                # Batch Scan
+                if "batch_mode" in settings:
+                    self.ck_batch_mode.setChecked(settings["batch_mode"])
+                if "batch_count" in settings:
+                    self.sp_batch_count.setValue(settings["batch_count"])
+                
+                # Lamp Warm-up
+                if "lamp_warmup" in settings:
+                    self.ck_lamp_warmup.setChecked(settings["lamp_warmup"])
+                if "lamp_duration" in settings:
+                    self.sp_lamp_duration.setValue(settings["lamp_duration"])
+                
+                # HDR
+                if "hdr_mode" in settings:
+                    self.ck_hdr_mode.setChecked(settings["hdr_mode"])
+                if "hdr_comp" in settings:
+                    self.slider_hdr_comp.setValue(settings["hdr_comp"])
                 
                 # Scan Area
                 if "custom_area" in settings:
@@ -532,9 +635,16 @@ class MainWindow(QWidget):
             "brightness": self.slider_brightness.value(),
             "contrast": self.slider_contrast.value(),
             "sharpness": self.slider_sharpness.value(),
+            "denoise": self.slider_denoise.value(),
             "rotation": self.cb_rotation.currentIndex(),
             "mirror_horizontal": self.ck_mirror_horizontal.isChecked(),
             "mirror_vertical": self.ck_mirror_vertical.isChecked(),
+            "batch_mode": self.ck_batch_mode.isChecked(),
+            "batch_count": self.sp_batch_count.value(),
+            "lamp_warmup": self.ck_lamp_warmup.isChecked(),
+            "lamp_duration": self.sp_lamp_duration.value(),
+            "hdr_mode": self.ck_hdr_mode.isChecked(),
+            "hdr_comp": self.slider_hdr_comp.value(),
             "custom_area": self.ck_custom_area.isChecked(),
             "area_left": self.sp_area_left.value(),
             "area_top": self.sp_area_top.value(),
@@ -687,6 +797,38 @@ class MainWindow(QWidget):
         a = self.build_args()
         self._wanted = a
         
+        # Lamp Warm-up für Farb-Scans?
+        if (self.ck_lamp_warmup.isChecked() and 
+            self.cb_color.currentText() == "Color" and 
+            self.mode() == "film"):
+            duration = self.sp_lamp_duration.value()
+            self.status.setText(f"Warming up lamp for {duration} seconds...")
+            QApplication.processEvents()
+            
+            import time
+            time.sleep(duration)
+            self.status.setText("Lamp warm-up complete. Starting scan...")
+            QApplication.processEvents()
+        
+        # HDR-Modus?
+        if self.ck_hdr_mode.isChecked():
+            self._hdr_index = 0
+            self._hdr_total = 2
+            self._hdr_results = []
+            self._hdr_exposures = self._get_hdr_exposures()
+            self._start_next_hdr_scan()
+        # Batch-Modus oder Einzel-Scan?
+        elif self.ck_batch_mode.isChecked() and self.sp_batch_count.value() > 1:
+            self._batch_index = 0
+            self._batch_total = self.sp_batch_count.value()
+            self._batch_results = []
+            self._start_next_batch_scan()
+        else:
+            # Einzel-Scan
+            self._do_single_scan(a)
+    
+    def _do_single_scan(self, a):
+        """Startet einen einzelnen Scan."""
         # Prüfen, ob Kalibrierung benötigt wird
         needs_calibration = self._check_needs_calibration(a)
         if needs_calibration:
@@ -696,6 +838,7 @@ class MainWindow(QWidget):
         else:
             self.status.setText(
                 "Scanning… (using cached calibration for this resolution/color mode)")
+        
         if a.mode == "film" and not a.depth16:
             # Zweistufig wie SilverFast: schneller Vorschau-Scan bei
             # 300 dpi, Rahmen setzen, dann scannt nur noch der
@@ -714,8 +857,228 @@ class MainWindow(QWidget):
         self.worker.done.connect(self.scan_done)
         self.worker.failed.connect(self.scan_failed)
         self.worker.start()
-
+    
+    def _get_hdr_exposures(self):
+        """Berechnet die Belichtungswerte für die HDR-Scans."""
+        # Basiswert und Kompensation für den zweiten Scan
+        base_brightness = self.slider_brightness.value()
+        comp_value = self.slider_hdr_comp.value()
+        # Map slider value (-100 to 100) to brightness offset (-300 to 300)
+        comp_offset = int(comp_value / 100 * 300)
+        return [base_brightness, base_brightness + comp_offset]
+    
+    def _start_next_hdr_scan(self):
+        """Startet den nächsten Scan im HDR-Modus."""
+        self._hdr_index += 1
+        hdr_num = self._hdr_index
+        hdr_total = self._hdr_total
+        
+        # Status aktualisieren
+        self.status.setText(
+            f"HDR scan: {hdr_num}/{hdr_total} - "
+            f"Scanning… (using cached calibration)")
+        self.progress.setRange(0, hdr_total)
+        self.progress.setValue(hdr_num)
+        
+        # Belichtungswert für diesen Scan
+        exposure_brightness = self._hdr_exposures[hdr_num - 1]
+        
+        # Neue Datei für diesen Scan
+        a = self.build_args()
+        
+        # Belichtung anpassen
+        a.sane_opt = [opt for opt in a.sane_opt if not opt.startswith('brightness=')]
+        a.sane_opt.append(f"brightness={exposure_brightness}")
+        
+        # Dateinamen anpassen mit HDR-Index
+        import datetime
+        fmt = self.cb_format.currentText()
+        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[fmt]
+        
+        pattern = self.ed_filename_pattern.text()
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = pattern.format(
+            datetime=stamp,
+            frame=hdr_num,
+            mode=self.mode(),
+            dpi=self.cb_dpi.currentText(),
+            color=self.cb_color.currentText().lower()
+        )
+        out = pathlib.Path(self.ed_dir.text()) / f"{filename}.{ext}"
+        a.output = str(out)
+        
+        self._wanted = a
+        self._do_single_scan(a)
+    
+    def _merge_hdr_scans(self):
+        """Vereinigt die HDR-Scans zu einem einzigen Bild."""
+        import numpy as np
+        from PIL import Image
+        import tempfile
+        
+        if len(self._hdr_results) < 2:
+            self.status.setText("Error: Not enough HDR images to merge")
+            del self._hdr_index
+            del self._hdr_total
+            del self._hdr_results
+            del self._hdr_exposures
+            self.btn_scan.setEnabled(True)
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+            return
+        
+        # Lade die beiden Bilder
+        try:
+            img1 = Image.open(self._hdr_results[0]).convert("RGB")
+            img2 = Image.open(self._hdr_results[1]).convert("RGB")
+            arr1 = np.array(img1)
+            arr2 = np.array(img2)
+        except Exception as e:
+            self.status.setText(f"Error loading HDR images: {e}")
+            del self._hdr_index
+            del self._hdr_total
+            del self._hdr_results
+            del self._hdr_exposures
+            self.btn_scan.setEnabled(True)
+            self.progress.setRange(0, 1)
+            self.progress.setValue(1)
+            return
+        
+        # Einfaches Exposure Blending (könnte verbessert werden)
+        # Hier verwenden wir eine einfache gewichtete Mittelwertbildung
+        # basierend auf der Belichtung
+        merged = self._blend_exposures(arr1, arr2)
+        
+        # Speichern des vereinigten Bildes
+        a = self._wanted
+        fmt = self.cb_format.currentText()
+        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[fmt]
+        
+        pattern = self.ed_filename_pattern.text()
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = pattern.format(
+            datetime=stamp,
+            frame=1,
+            mode=self.mode(),
+            dpi=self.cb_dpi.currentText(),
+            color=self.cb_color.currentText().lower()
+        )
+        # Füge HDR-Suffix hinzu
+        filename = filename.replace("scan_", "scan_hdr_")
+        out = pathlib.Path(self.ed_dir.text()) / f"{filename}.{ext}"
+        
+        img = Image.fromarray(merged)
+        if a.format == "jpeg":
+            img.save(str(out), quality=95)
+        else:
+            img.save(str(out))
+        
+        # Aufräumen
+        del self._hdr_index
+        del self._hdr_total
+        del self._hdr_results
+        del self._hdr_exposures
+        
+        # Status aktualisieren und Ergebnis anzeigen
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+        self.btn_scan.setEnabled(True)
+        self.status.setText(f"HDR scan complete: {out}")
+        self.editor_hint.hide()
+        self.preview.set_image(QPixmap(str(out)))
+        
+        # Temporary files löschen
+        for p in self._hdr_results:
+            try:
+                pathlib.Path(p).unlink()
+            except:
+                pass
+    
+    def _blend_exposures(self, arr1, arr2):
+        """Vereinigt zwei Belichtungen mit einfachem Blending."""
+        # Konvertiere zu Float für die Berechnungen
+        arr1_f = arr1.astype(np.float32) / 255.0
+        arr2_f = arr2.astype(np.float32) / 255.0
+        
+        # Einfache gewichtete Mittelwertbildung
+        # Bewahrt Details aus beiden Belichtungen
+        # Hier verwenden wir 50/50 für Einfachheit
+        # (könnte durch intelligentes Blending basierend auf Luminanz verbessert werden)
+        merged = (arr1_f + arr2_f) / 2.0
+        
+        # Tonwertanpassung um Kontrast zu erhalten
+        merged = np.clip(merged, 0, 1)
+        
+        # Konvertiere zurück zu uint8
+        return (merged * 255).astype(np.uint8)
+    
+    def _start_next_batch_scan(self):
+        """Startet den nächsten Scan im Batch-Modus."""
+        self._batch_index += 1
+        batch_num = self._batch_index
+        batch_total = self._batch_total
+        
+        # Status aktualisieren
+        self.status.setText(
+            f"Batch scan: {batch_num}/{batch_total} - "
+            f"Scanning… (using cached calibration)")
+        self.progress.setRange(0, batch_total)
+        self.progress.setValue(batch_num)
+        
+        # Neue Datei für diesen Scan
+        a = self.build_args()
+        # Dateinamen anpassen mit Batch-Nummer
+        import datetime
+        fmt = self.cb_format.currentText()
+        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[fmt]
+        
+        pattern = self.ed_filename_pattern.text()
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = pattern.format(
+            datetime=stamp,
+            frame=batch_num,
+            mode=self.mode(),
+            dpi=self.cb_dpi.currentText(),
+            color=self.cb_color.currentText().lower()
+        )
+        out = pathlib.Path(self.ed_dir.text()) / f"{filename}.{ext}"
+        a.output = str(out)
+        
+        self._wanted = a
+        self._do_single_scan(a)
+    
     def scan_done(self, paths):
+        # HDR-Modus: sammle Ergebnisse und starte nächsten Scan oder merge
+        if hasattr(self, '_hdr_index') and hasattr(self, '_hdr_total'):
+            self._hdr_results.extend(paths)
+            hdr_num = self._hdr_index
+            hdr_total = self._hdr_total
+            
+            if hdr_num < hdr_total:
+                # Noch ein Scan im HDR-Modus
+                self._start_next_hdr_scan()
+                return
+            else:
+                # HDR abgeschlossen - Scans mergen
+                self._merge_hdr_scans()
+                return
+        # Batch-Modus: sammle Ergebnisse und starte nächsten Scan
+        elif hasattr(self, '_batch_index') and hasattr(self, '_batch_total'):
+            self._batch_results.extend(paths)
+            batch_num = self._batch_index
+            batch_total = self._batch_total
+            
+            if batch_num < batch_total:
+                # Noch weitere Scans in der Batch
+                self._start_next_batch_scan()
+                return
+            else:
+                # Batch abgeschlossen
+                paths = self._batch_results
+                del self._batch_index
+                del self._batch_total
+                del self._batch_results
+        
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)

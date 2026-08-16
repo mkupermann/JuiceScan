@@ -47,8 +47,14 @@ exit 0
 EOF
 chmod +x "$STAGE/pkgscripts/postinstall"
 
-# 4) pkg bauen, in DMG verpacken
+# 4) pkg bauen, in DMG verpacken. BundleIsRelocatable aus, sonst
+# "aktualisiert" der Installer eine anderswo gefundene Kopie der App
+# statt nach /Applications zu installieren.
+pkgbuild --analyze --root "$PKGROOT" "$STAGE/components.plist" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" \
+  "$STAGE/components.plist"
 pkgbuild --root "$PKGROOT" \
+  --component-plist "$STAGE/components.plist" \
   --identifier com.kupermann.canoscan8600f \
   --version "$VERSION" \
   --scripts "$STAGE/pkgscripts" \

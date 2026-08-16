@@ -2,21 +2,61 @@
 """scan8600 GUI - PySide6-Oberfläche für Flachbett- und Durchlicht-Scans."""
 import argparse
 import datetime
+import json
 import pathlib
+import shutil
 import sys
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
-                               QFileDialog, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QProgressBar, QPushButton, QRadioButton,
-                               QSpinBox,
+                               QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
+                               QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
+                               QProgressBar, QPushButton, QRadioButton, QSlider,
+                               QSpinBox, QInputDialog,
                                QVBoxLayout, QWidget)
 
 import autocrop
 import scan8600
 from frameeditor import FrameEditor
+
+# Config Datei
+CONFIG_FILE = pathlib.Path.home() / ".juicescan_config.json"
+
+# Presets
+PRESETS = {
+    "Photo (Color, 300dpi)": {
+        "mode": "flatbed",
+        "dpi": "300",
+        "color": "Color",
+        "format": "jpeg",
+        "autocrop": True,
+        "split": True,
+    },
+    "Document (Grayscale, 300dpi)": {
+        "mode": "flatbed",
+        "dpi": "300",
+        "color": "Grayscale",
+        "format": "png",
+        "autocrop": True,
+        "split": True,
+    },
+    "Film Color (2400dpi, Descratch)": {
+        "mode": "film",
+        "dpi": "2400",
+        "color": "Color",
+        "format": "tiff",
+        "descratch": True,
+        "negative": True,
+    },
+    "Film B/W (2400dpi, Grayscale)": {
+        "mode": "film",
+        "dpi": "2400",
+        "color": "Grayscale",
+        "format": "tiff",
+        "negative": True,
+    },
+}
 
 RESOLUTIONS = {"flatbed": [300, 600, 1200],
                "film": [300, 600, 1200, 2400, 4800]}
@@ -50,10 +90,27 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("JuiceScan by kupermann.com")
         self.worker = None
+        self.crop_worker = None
         root = QHBoxLayout(self)
 
         # Linke Spalte: Einstellungen
         left = QVBoxLayout()
+        
+        # ===== PRESETS =====
+        presets_box = QGroupBox("Presets")
+        presets_layout = QHBoxLayout(presets_box)
+        self.cb_presets = QComboBox()
+        self.cb_presets.addItems(["Custom"] + list(PRESETS.keys()))
+        self.btn_save_preset = QPushButton("Save")
+        self.btn_delete_preset = QPushButton("Delete")
+        self.cb_presets.currentTextChanged.connect(self.apply_preset)
+        self.btn_save_preset.clicked.connect(self.save_current_as_preset)
+        self.btn_delete_preset.clicked.connect(self.delete_preset)
+        presets_layout.addWidget(self.cb_presets)
+        presets_layout.addWidget(self.btn_save_preset)
+        presets_layout.addWidget(self.btn_delete_preset)
+        left.addWidget(presets_box)
+        
         mode_box = QGroupBox("Mode")
         mb = QHBoxLayout(mode_box)
         self.rb_flatbed = QRadioButton("Flatbed")
@@ -94,6 +151,38 @@ class MainWindow(QWidget):
         fr.addWidget(self.sp_frames)
         ob.addLayout(fr)
         left.addWidget(opt_box)
+        
+        # ===== SCAN AREA (Flatbed only) =====
+        self.area_box = QGroupBox("Scan Area (Flatbed)")
+        self.area_box.setVisible(False)
+        area_form = QFormLayout(self.area_box)
+        
+        self.ck_custom_area = QCheckBox("Custom scan area")
+        self.ck_custom_area.stateChanged.connect(self.toggle_custom_area)
+        area_form.addRow(self.ck_custom_area)
+        
+        self.sp_area_left = QDoubleSpinBox()
+        self.sp_area_left.setRange(0, 216)
+        self.sp_area_left.setSuffix(" mm")
+        self.sp_area_left.setDecimals(1)
+        self.sp_area_top = QDoubleSpinBox()
+        self.sp_area_top.setRange(0, 297)
+        self.sp_area_top.setSuffix(" mm")
+        self.sp_area_top.setDecimals(1)
+        self.sp_area_width = QDoubleSpinBox()
+        self.sp_area_width.setRange(1, 216)
+        self.sp_area_width.setSuffix(" mm")
+        self.sp_area_width.setDecimals(1)
+        self.sp_area_height = QDoubleSpinBox()
+        self.sp_area_height.setRange(1, 297)
+        self.sp_area_height.setSuffix(" mm")
+        self.sp_area_height.setDecimals(1)
+        
+        area_form.addRow("Left:", self.sp_area_left)
+        area_form.addRow("Top:", self.sp_area_top)
+        area_form.addRow("Width:", self.sp_area_width)
+        area_form.addRow("Height:", self.sp_area_height)
+        left.addWidget(self.area_box)
 
         out_box = QGroupBox("Destination")
         of = QHBoxLayout(out_box)
@@ -103,6 +192,65 @@ class MainWindow(QWidget):
         of.addWidget(self.ed_dir)
         of.addWidget(btn_dir)
         left.addWidget(out_box)
+
+        # ===== ADVANCED OPTIONS =====
+        adv_box = QGroupBox("Advanced Options")
+        adv_layout = QVBoxLayout(adv_box)
+        
+        # Brightness
+        brightness_layout = QHBoxLayout()
+        brightness_layout.addWidget(QLabel("Brightness:"))
+        self.slider_brightness = QSlider(Qt.Horizontal)
+        self.slider_brightness.setRange(-1000, 1000)
+        self.slider_brightness.setValue(0)
+        self.lbl_brightness = QLabel("0")
+        self.lbl_brightness.setMinimumWidth(40)
+        brightness_layout.addWidget(self.slider_brightness)
+        brightness_layout.addWidget(self.lbl_brightness)
+        self.slider_brightness.valueChanged.connect(
+            lambda v: self.lbl_brightness.setText(str(v))
+        )
+        adv_layout.addLayout(brightness_layout)
+        
+        # Contrast
+        contrast_layout = QHBoxLayout()
+        contrast_layout.addWidget(QLabel("Contrast:"))
+        self.slider_contrast = QSlider(Qt.Horizontal)
+        self.slider_contrast.setRange(-1000, 1000)
+        self.slider_contrast.setValue(0)
+        self.lbl_contrast = QLabel("0")
+        self.lbl_contrast.setMinimumWidth(40)
+        contrast_layout.addWidget(self.slider_contrast)
+        contrast_layout.addWidget(self.lbl_contrast)
+        self.slider_contrast.valueChanged.connect(
+            lambda v: self.lbl_contrast.setText(str(v))
+        )
+        adv_layout.addLayout(contrast_layout)
+        
+        # Sharpness
+        sharpness_layout = QHBoxLayout()
+        sharpness_layout.addWidget(QLabel("Sharpness:"))
+        self.slider_sharpness = QSlider(Qt.Horizontal)
+        self.slider_sharpness.setRange(0, 100)
+        self.slider_sharpness.setValue(0)
+        self.lbl_sharpness = QLabel("0")
+        self.lbl_sharpness.setMinimumWidth(40)
+        sharpness_layout.addWidget(self.slider_sharpness)
+        sharpness_layout.addWidget(self.lbl_sharpness)
+        self.slider_sharpness.valueChanged.connect(
+            lambda v: self.lbl_sharpness.setText(str(v))
+        )
+        adv_layout.addLayout(sharpness_layout)
+        
+        left.addWidget(adv_box)
+        
+        # ===== CALIBRATION CACHE =====
+        cache_box = QGroupBox("Calibration")
+        cache_layout = QHBoxLayout(cache_box)
+        self.btn_clear_cache = QPushButton("Clear Cache")
+        self.btn_clear_cache.clicked.connect(self.clear_calibration_cache)
+        cache_layout.addWidget(self.btn_clear_cache)
+        left.addWidget(cache_box)
 
         self.btn_scan = QPushButton("Scan")
         self.btn_scan.setObjectName("scanButton")
@@ -115,6 +263,40 @@ class MainWindow(QWidget):
         self.status = QLabel("Ready.")
         self.status.setWordWrap(True)
         left.addWidget(self.status)
+        
+        # ===== OUTPUT OPTIONS =====
+        # Dateinamen-Vorlage
+        filename_box = QGroupBox("Output Filename")
+        filename_layout = QFormLayout(filename_box)
+        self.ed_filename_pattern = QLineEdit("scan_{datetime}")
+        filename_layout.addRow("Pattern:", self.ed_filename_pattern)
+        self.lbl_pattern_help = QLabel(
+            "Variables: {datetime}, {frame}, {mode}, {dpi}, {color}"
+        )
+        self.lbl_pattern_help.setWordWrap(True)
+        filename_layout.addRow(self.lbl_pattern_help)
+        self.lbl_filename_preview = QLabel("Preview: scan_20260817_143000.tiff")
+        filename_layout.addRow(self.lbl_filename_preview)
+        self.ed_filename_pattern.textChanged.connect(self.update_filename_preview)
+        left.addWidget(filename_box)
+        
+        # Rotation & Mirror
+        transform_box = QGroupBox("Transform")
+        transform_layout = QHBoxLayout(transform_box)
+        transform_layout.addWidget(QLabel("Rotation:"))
+        self.cb_rotation = QComboBox()
+        self.cb_rotation.addItems(["0°", "90°", "180°", "270°"])
+        transform_layout.addWidget(self.cb_rotation)
+        left.addWidget(transform_box)
+        
+        mirror_box = QGroupBox("Mirror")
+        mirror_layout = QHBoxLayout(mirror_box)
+        self.ck_mirror_horizontal = QCheckBox("Horizontal")
+        self.ck_mirror_vertical = QCheckBox("Vertical")
+        mirror_layout.addWidget(self.ck_mirror_horizontal)
+        mirror_layout.addWidget(self.ck_mirror_vertical)
+        left.addWidget(mirror_box)
+        
         left.addStretch()
         root.addLayout(left, 0)
 
@@ -141,7 +323,13 @@ class MainWindow(QWidget):
         self.ck_depth16.toggled.connect(self.sync_depth16)
         for w in (self.ck_descratch, self.ck_negative, self.ck_autocrop):
             w.toggled.connect(self.sync_depth16)
+        
+        # Einstellungen laden und Preset anwenden
+        self.load_settings()
+        # sync_mode muss nach load_settings aufgerufen werden, da DPI-Optionen vom Modus abhängen
         self.sync_mode()
+        # Preset anwenden (kann Modus ändern, also nach sync_mode)
+        self.apply_preset(self.cb_presets.currentText())
 
     # --- UI-Logik ---------------------------------------------------------
     def mode(self):
@@ -155,12 +343,19 @@ class MainWindow(QWidget):
         self.ck_descratch.setEnabled(m == "film")
         self.ck_negative.setEnabled(m == "film")
         self.sp_frames.setEnabled(m == "film")
+        self.area_box.setVisible(m == "flatbed")
         if m != "film":
             self.ck_negative.setChecked(False)
             self.sp_frames.setValue(0)
         if m != "film":
             self.ck_descratch.setChecked(False)
         self.sync_split()
+    
+    def toggle_custom_area(self, state):
+        """Zeigt/versteckt die manuellen Bereichs-Einstellungen."""
+        for widget in [self.sp_area_left, self.sp_area_top, 
+                      self.sp_area_width, self.sp_area_height]:
+            widget.setEnabled(state == Qt.Checked)
 
     def sync_depth16(self):
         # 16 Bit liefert das rohe Treiber-TIFF, jede Nachbearbeitung
@@ -198,8 +393,37 @@ class MainWindow(QWidget):
     def build_args(self):
         fmt = self.cb_format.currentText()
         ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[fmt]
+        
+        # Benutzerdefiniertes Dateinamen-Muster
+        pattern = self.ed_filename_pattern.text()
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = pathlib.Path(self.ed_dir.text()) / f"scan_{stamp}.{ext}"
+        filename = pattern.format(
+            datetime=stamp,
+            frame=1,
+            mode=self.mode(),
+            dpi=self.cb_dpi.currentText(),
+            color=self.cb_color.currentText().lower()
+        )
+        out = pathlib.Path(self.ed_dir.text()) / f"{filename}.{ext}"
+        
+        # SANE-Optionen sammeln
+        sane_opts = []
+        if self.slider_brightness.value() != 0:
+            sane_opts.append(f"brightness={self.slider_brightness.value()}")
+        if self.slider_contrast.value() != 0:
+            sane_opts.append(f"contrast={self.slider_contrast.value()}")
+        if self.slider_sharpness.value() != 0:
+            sane_opts.append(f"sharpness={self.slider_sharpness.value()}")
+        
+        # Custom Scan Area (nur für Flachbett)
+        if self.ck_custom_area.isChecked() and self.mode() == "flatbed":
+            sane_opts.extend([
+                f"l={self.sp_area_left.value():.1f}",
+                f"t={self.sp_area_top.value():.1f}",
+                f"x={self.sp_area_width.value():.1f}",
+                f"y={self.sp_area_height.value():.1f}",
+            ])
+        
         return argparse.Namespace(
             mode=self.mode(),
             dpi=int(self.cb_dpi.currentText()),
@@ -212,18 +436,266 @@ class MainWindow(QWidget):
             split=self.ck_split.isChecked(),
             depth16=self.ck_depth16.isChecked(),
             frames=self.sp_frames.value(),
+            sane_opt=sane_opts,
         )
+    
+    # --- PERSISTENCE ------------------------------------------------------------
+    def load_settings(self):
+        """Lädt Einstellungen aus der Config-Datei."""
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE) as f:
+                    settings = json.load(f)
+                
+                # Grundeinstellungen
+                if "mode" in settings:
+                    if settings["mode"] == "film":
+                        self.rb_film.setChecked(True)
+                    else:
+                        self.rb_flatbed.setChecked(True)
+                
+                if "color" in settings:
+                    self.cb_color.setCurrentText(settings["color"])
+                if "format" in settings:
+                    self.cb_format.setCurrentText(settings["format"])
+                if "output_dir" in settings:
+                    self.ed_dir.setText(settings["output_dir"])
+                if "filename_pattern" in settings:
+                    self.ed_filename_pattern.setText(settings["filename_pattern"])
+                
+                # Verarbeitungsoptionen
+                if "descratch" in settings:
+                    self.ck_descratch.setChecked(settings["descratch"])
+                if "negative" in settings:
+                    self.ck_negative.setChecked(settings["negative"])
+                if "autocrop" in settings:
+                    self.ck_autocrop.setChecked(settings["autocrop"])
+                if "split" in settings:
+                    self.ck_split.setChecked(settings["split"])
+                if "depth16" in settings:
+                    self.ck_depth16.setChecked(settings["depth16"])
+                if "frames" in settings:
+                    self.sp_frames.setValue(settings["frames"])
+                
+                # SANE-Optionen
+                if "brightness" in settings:
+                    self.slider_brightness.setValue(settings["brightness"])
+                if "contrast" in settings:
+                    self.slider_contrast.setValue(settings["contrast"])
+                if "sharpness" in settings:
+                    self.slider_sharpness.setValue(settings["sharpness"])
+                
+                # Transform
+                if "rotation" in settings:
+                    self.cb_rotation.setCurrentIndex(settings["rotation"])
+                if "mirror_horizontal" in settings:
+                    self.ck_mirror_horizontal.setChecked(settings["mirror_horizontal"])
+                if "mirror_vertical" in settings:
+                    self.ck_mirror_vertical.setChecked(settings["mirror_vertical"])
+                
+                # Scan Area
+                if "custom_area" in settings:
+                    self.ck_custom_area.setChecked(settings["custom_area"])
+                if "area_left" in settings:
+                    self.sp_area_left.setValue(settings["area_left"])
+                if "area_top" in settings:
+                    self.sp_area_top.setValue(settings["area_top"])
+                if "area_width" in settings:
+                    self.sp_area_width.setValue(settings["area_width"])
+                if "area_height" in settings:
+                    self.sp_area_height.setValue(settings["area_height"])
+                
+                # Preset
+                if "preset" in settings:
+                    preset_name = settings["preset"]
+                    if preset_name in PRESETS or preset_name == "Custom":
+                        self.cb_presets.setCurrentText(preset_name)
+                
+            except Exception as e:
+                print(f"Error loading settings: {e}")
+    
+    def save_settings(self):
+        """Speichert Einstellungen in die Config-Datei."""
+        settings = {
+            "mode": self.mode(),
+            "color": self.cb_color.currentText(),
+            "dpi": self.cb_dpi.currentText(),
+            "format": self.cb_format.currentText(),
+            "output_dir": self.ed_dir.text(),
+            "filename_pattern": self.ed_filename_pattern.text(),
+            "descratch": self.ck_descratch.isChecked(),
+            "negative": self.ck_negative.isChecked(),
+            "autocrop": self.ck_autocrop.isChecked(),
+            "split": self.ck_split.isChecked(),
+            "depth16": self.ck_depth16.isChecked(),
+            "frames": self.sp_frames.value(),
+            "brightness": self.slider_brightness.value(),
+            "contrast": self.slider_contrast.value(),
+            "sharpness": self.slider_sharpness.value(),
+            "rotation": self.cb_rotation.currentIndex(),
+            "mirror_horizontal": self.ck_mirror_horizontal.isChecked(),
+            "mirror_vertical": self.ck_mirror_vertical.isChecked(),
+            "custom_area": self.ck_custom_area.isChecked(),
+            "area_left": self.sp_area_left.value(),
+            "area_top": self.sp_area_top.value(),
+            "area_width": self.sp_area_width.value(),
+            "area_height": self.sp_area_height.value(),
+            "preset": self.cb_presets.currentText(),
+        }
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+    
+    def closeEvent(self, event):
+        """Speichert Einstellungen beim Schließen."""
+        self.save_settings()
+        super().closeEvent(event)
+    
+    # --- PRESETS ----------------------------------------------------------------
+    def apply_preset(self, preset_name):
+        """Wendet ein Preset an."""
+        if preset_name == "Custom" or preset_name not in PRESETS:
+            return
+        
+        preset = PRESETS[preset_name]
+        
+        # Modus zuerst setzen (könnte sync_mode auslösen)
+        if "mode" in preset:
+            if preset["mode"] == "film":
+                self.rb_film.setChecked(True)
+            else:
+                self.rb_flatbed.setChecked(True)
+        
+        # Anderes
+        if "color" in preset:
+            self.cb_color.setCurrentText(preset["color"])
+        if "dpi" in preset:
+            # Warten bis sync_mode die DPI-Optionen gesetzt hat
+            QApplication.processEvents()
+            self.cb_dpi.setCurrentText(str(preset["dpi"]))
+        if "format" in preset:
+            self.cb_format.setCurrentText(preset["format"])
+        if "descratch" in preset:
+            self.ck_descratch.setChecked(preset["descratch"])
+        if "negative" in preset:
+            self.ck_negative.setChecked(preset["negative"])
+        if "autocrop" in preset:
+            self.ck_autocrop.setChecked(preset["autocrop"])
+        if "split" in preset:
+            self.ck_split.setChecked(preset["split"])
+        if "depth16" in preset:
+            self.ck_depth16.setChecked(preset["depth16"])
+    
+    def save_current_as_preset(self):
+        """Speichert aktuelle Einstellungen als neues Preset."""
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        if ok and name and name.strip():
+            PRESETS[name] = self._get_current_settings()
+            self.cb_presets.addItem(name)
+            self.cb_presets.setCurrentText(name)
+            self.save_settings()
+    
+    def delete_preset(self):
+        """Löscht ein Preset."""
+        name = self.cb_presets.currentText()
+        if name != "Custom" and name in PRESETS:
+            if QMessageBox.question(self, "Delete Preset", 
+                                  f"Delete preset '{name}'?", 
+                                  QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                del PRESETS[name]
+                self.cb_presets.removeItem(self.cb_presets.currentIndex())
+    
+    def _get_current_settings(self):
+        """Gibt die aktuellen Einstellungen als Dictionary zurück."""
+        return {
+            "mode": self.mode(),
+            "dpi": self.cb_dpi.currentText(),
+            "color": self.cb_color.currentText(),
+            "format": self.cb_format.currentText(),
+            "descratch": self.ck_descratch.isChecked(),
+            "negative": self.ck_negative.isChecked(),
+            "autocrop": self.ck_autocrop.isChecked(),
+            "split": self.ck_split.isChecked(),
+            "depth16": self.ck_depth16.isChecked(),
+        }
+    
+    # --- CALIBRATION CACHE ------------------------------------------------------
+    def _check_needs_calibration(self, args):
+        """Prüft, ob für diese Parameter bereits Kalibrierung existiert."""
+        cache_dir = pathlib.Path.home() / ".sane" / "genesys"
+        if not cache_dir.exists():
+            return True
+        
+        # SANE speichert Kalibrierung als calibration-{source}-{resolution}-{depth}-{mode}.dat
+        # oder ähnlich. Wir prüfen einfach, ob die cache_dir Dateien hat.
+        calibration_files = list(cache_dir.glob("calibration-*.dat"))
+        if not calibration_files:
+            return True
+        
+        # Probiere, die spezifische Kalibrierungsdatei zu finden
+        depth = 8 if args.gray else 24
+        source = "film" if args.mode == "film" else "flatbed"
+        calibration_file = cache_dir / f"calibration-*-{source}-{args.dpi}-{depth}-*.dat"
+        specific_files = list(cache_dir.glob(f"calibration-*-{source}-{args.dpi}-{depth}-*.dat"))
+        
+        return len(specific_files) == 0
+    
+    def clear_calibration_cache(self):
+        """Löscht den SANE-Kalibrierungs-Cache."""
+        cache_dir = pathlib.Path.home() / ".sane" / "genesys"
+        if cache_dir.exists():
+            try:
+                shutil.rmtree(cache_dir)
+                self.status.setText("✓ Calibration cache cleared.")
+                QMessageBox.information(self, "Cache Cleared", 
+                                       "Scanner calibration cache has been cleared.")
+            except Exception as e:
+                self.status.setText(f"✗ Error clearing cache: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to clear cache: {e}")
+        else:
+            self.status.setText("No cache found.")
+    
+    # --- FILENAME PATTERN --------------------------------------------------------
+    def update_filename_preview(self):
+        """Aktualisiert die Vorschau des Dateinamens."""
+        pattern = self.ed_filename_pattern.text()
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        try:
+            preview = pattern.format(
+                datetime=stamp,
+                frame=1,
+                mode=self.mode(),
+                dpi=self.cb_dpi.currentText(),
+                color=self.cb_color.currentText().lower()
+            )
+            fmt = self.cb_format.currentText()
+            ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[fmt]
+            self.lbl_filename_preview.setText(f"Preview: {preview}.{ext}")
+        except Exception as e:
+            self.lbl_filename_preview.setText(f"Preview: ERROR ({e})")
 
     # --- Scan-Ablauf ------------------------------------------------------
     def start_scan(self):
         self.btn_scan.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.progress.setRange(0, 0)
-        self.status.setText(
-            "Scanning… (a new resolution or color mode calibrates once, "
-            "then it is cached)")
+        
         a = self.build_args()
         self._wanted = a
+        
+        # Prüfen, ob Kalibrierung benötigt wird
+        needs_calibration = self._check_needs_calibration(a)
+        if needs_calibration:
+            self.status.setText(
+                "Calibrating scanner… (first time for this resolution/color mode, "
+                "then it is cached)")
+        else:
+            self.status.setText(
+                "Scanning… (using cached calibration for this resolution/color mode)")
         if a.mode == "film" and not a.depth16:
             # Zweistufig wie SilverFast: schneller Vorschau-Scan bei
             # 300 dpi, Rahmen setzen, dann scannt nur noch der
@@ -337,6 +809,10 @@ class MainWindow(QWidget):
             crop = arr[y0:y1, x0:x1]
             if a.negative:
                 crop = scan8600.invert_negative(crop)
+            
+            # Transformationen anwenden
+            crop = self._apply_transformations(crop)
+            
             p = pathlib.Path(self.ed_dir.text()) / f"scan_{stamp}_{i}.{ext}"
             img = Image.fromarray(crop)
             if a.format == "jpeg":
@@ -345,6 +821,23 @@ class MainWindow(QWidget):
                 img.save(p)
             outs.append(str(p))
         self.crops_done(outs)
+    
+    def _apply_transformations(self, arr):
+        """Wendet Rotation und Spiegelung auf das Bild an."""
+        import numpy as np
+        
+        # Rotation
+        rotation_index = self.cb_rotation.currentIndex()
+        if rotation_index > 0:
+            arr = np.rot90(arr, k=rotation_index)
+        
+        # Spiegelung
+        if self.ck_mirror_horizontal.isChecked():
+            arr = np.fliplr(arr)
+        if self.ck_mirror_vertical.isChecked():
+            arr = np.flipud(arr)
+        
+        return arr
 
     def crops_done(self, outs):
         self.progress.setRange(0, 1)

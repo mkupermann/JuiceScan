@@ -19,7 +19,12 @@ class FrameEditor(QGraphicsView):
         self._pix_item = None
         self._draft = None
         self._origin = None
+        self._scale = 1.0
         self.setRenderHint(self.renderHints())
+        # Pan mit Maus aktivieren
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
 
     # --- API --------------------------------------------------------------
     def set_image(self, pixmap: QPixmap):
@@ -97,3 +102,35 @@ class FrameEditor(QGraphicsView):
         super().resizeEvent(event)
         if self._pix_item is not None:
             self.fitInView(self._pix_item, Qt.AspectRatioMode.KeepAspectRatio)
+    
+    def wheelEvent(self, event):
+        """Zoom mit Strg + Mausrad."""
+        if event.modifiers() & Qt.ControlModifier:
+            # Zoom-Faktor
+            if event.angleDelta().y() > 0:
+                factor = 1.25
+            else:
+                factor = 0.8
+            
+            # Neue Skalierung berechnen
+            new_scale = self._scale * factor
+            
+            # Grenzen setzen
+            if 0.1 < new_scale < 10:
+                self._scale = new_scale
+                self.scale(factor, factor)
+            
+            event.accept()
+            return
+        
+        # Standard-Verhalten für andere Mausrad-Ereignisse
+        super().wheelEvent(event)
+    
+    def set_image(self, pixmap: QPixmap):
+        """Setzt das Bild und resetet die Skalierung."""
+        self._scale = 1.0
+        self._scene.clear()
+        self._pix_item = QGraphicsPixmapItem(pixmap)
+        self._scene.addItem(self._pix_item)
+        self._scene.setSceneRect(QRectF(pixmap.rect()))
+        self.fitInView(self._pix_item, Qt.AspectRatioMode.KeepAspectRatio)

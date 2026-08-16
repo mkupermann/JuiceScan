@@ -18,9 +18,12 @@ import autocrop
 import scan8600
 from frameeditor import FrameEditor
 
+# Durchlicht liefert auf dem 8600F nur bei 300 dpi echte Bilddaten,
+# darueber ist die Sensor-Ausgabe des genesys-Backends defekt
+# (verifiziert am Geraet, siehe README "Honest limits").
 RESOLUTIONS = {"flatbed": [300, 600, 1200],
-               "film": [300, 600, 1200, 2400, 4800]}
-DEFAULT_RES = {"flatbed": "300", "film": "2400"}
+               "film": [300]}
+DEFAULT_RES = {"flatbed": "300", "film": "300"}
 
 
 PREVIEW_DPI = 300

@@ -13,7 +13,8 @@ Windows 11.
 
 ## What it does
 
-- Flatbed and transparency (film and slides), 300 to 4800 dpi
+- Flatbed at 300 to 1200 dpi, transparency (film and slides) at
+  300 dpi, see the honest limits below
 - Two-stage film workflow: fast 300 dpi preview, draw or adjust frames
   in the built-in editor, then the scanner only scans those frame
   areas at full resolution
@@ -59,9 +60,8 @@ GUI:
 Film in the GUI is two-stage. Scan runs a quick 300 dpi preview of the
 whole strip. The suggested frames appear as rectangles, draw your own
 with the mouse, drag to move, Backspace deletes. Save crops then scans
-only those areas at the resolution you picked, inverts each frame on
-its own and writes numbered files. That is why a 6x6 frame takes a
-fraction of the time a full-strip high-res scan would.
+only those areas, inverts each frame on its own and writes numbered
+files.
 
 CLI:
 
@@ -71,7 +71,8 @@ CLI:
 
 The options that matter:
 
-    --dpi N                  resolution, default 300 flatbed, 2400 film
+    --dpi N                  resolution, default 300 (film maximum that
+                             yields real data, see limits)
     --gray                   grayscale instead of color
     --format tiff|png|jpeg   output format, default tiff
     --output PATH            target file
@@ -104,8 +105,13 @@ inside GIMP yet, its option logic is covered by unit tests.
   look just like a separator bar, so when frames touch, set the frame
   count yourself with `--frames N` or the GUI field. That is the same
   reason SilverFast shows you a frame overview to correct.
-- Transparency quality of the genesys backend sits below VueScan
-  level. In return you own the whole stack.
+- Transparency works at 300 dpi only. Above that the genesys backend
+  returns corrupt sensor data on the 8600F, verified on hardware at
+  600, 1200, 2400 and 4800 dpi in both the release and the current
+  development version. A register-level driver fix would need USB
+  captures against the old Canon Windows driver, that is an open
+  project. The GUI therefore offers 300 dpi for film, the CLI warns
+  above it.
 - Infrared dust removal cannot work on silver-based B/W film or
   Kodachrome. Silver blocks infrared. That is physics, not a bug. The
   app detects this case by comparing the infrared image with the

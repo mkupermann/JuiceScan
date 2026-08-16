@@ -93,6 +93,12 @@ void sanei_scsi_req_flush_all_extended (int fd) { (void) fd; }
 void sanei_scsi_close (int fd) { (void) fd; }
 EOF
 
+# MinGW: kill() existiert nicht. Lock-Datei-Prüfung meldet dann
+# konservativ, dass der andere Prozess noch lebt.
+grep -q 'define kill' sanei/sanei_access.c || \
+  sed -i 's|#include "../include/sane/sanei_access.h"|#include "../include/sane/sanei_access.h"\n#ifdef __MINGW32__\n#define kill(pid, sig) 0\n#endif|' \
+    sanei/sanei_access.c
+
 # MinGW: tv_sec ist long, localtime erwartet time_t*.
 grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
   sed -i 's|t = localtime (&tv.tv_sec);|{ time_t _tsec = tv.tv_sec; t = localtime (\&_tsec); }|' \

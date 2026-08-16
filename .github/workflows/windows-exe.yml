@@ -38,6 +38,8 @@ jobs:
           Copy-Item dist\CanoScan8600F.exe package\
           Copy-Item -Recurse prefix package\prefix
           Copy-Item docs\WINDOWS.md package\
+          New-Item -ItemType Directory -Path package\gimp-plugin | Out-Null
+          Copy-Item gimp\scan8600_gimp.py, scanoptions.py, gimp\INSTALL.md package\gimp-plugin\
 
       - uses: actions/upload-artifact@v4
         with:

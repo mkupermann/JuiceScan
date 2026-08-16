@@ -29,6 +29,12 @@ cp "$STAGE/pybin/scan8600" "$STAGE/payload/canoscan8600f/bin/scan8600"
   --specpath "$STAGE" "$ROOT/gui.py" >/dev/null 2>&1
 cp -R "$STAGE/pyapp/CanoScan 8600F.app" "$STAGE/payload/"
 
+mkdir -p "$STAGE/payload/gimp-plugin"
+cp "$ROOT/gimp/scan8600_gimp.py" "$ROOT/scanoptions.py" \
+   "$ROOT/gimp/INSTALL.md" "$STAGE/payload/gimp-plugin/"
+(cd "$STAGE/payload" && zip -qr "$ROOT/build/scan8600-gimp-plugin.zip" \
+   gimp-plugin)
+
 cat > "$STAGE/payload/install.sh" <<'EOF'
 #!/bin/bash
 # Installiert den CanoScan-8600F-Stack (Treiber + CLI + GUI-App).

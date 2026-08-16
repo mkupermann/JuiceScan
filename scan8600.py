@@ -77,7 +77,11 @@ def default_output(a):
 def build_command(a, source_name):
     cmd = [str(SCANIMAGE), "--format=tiff",
            "--resolution", str(a.dpi),
-           "--mode", "Gray" if a.gray else "Color"]
+           "--mode", "Gray" if a.gray else "Color",
+           # Kalibrier-Cache nie verfallen lassen. Ohne das verwirft
+           # genesys die Kalibrierung nach 60 Minuten und fährt bei
+           # jedem App-Start minutenlange Referenzfahrten.
+           "--expiration-time", "-1"]
     if getattr(a, "depth16", False):
         cmd += ["--depth", "16"]
     if source_name:

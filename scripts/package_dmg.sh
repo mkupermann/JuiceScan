@@ -15,8 +15,18 @@ mkdir -p "$STAGE/payload"
 cd "$SRC"
 PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig" \
   ./configure --prefix="$DIST_PREFIX" BACKENDS=genesys >/dev/null
+# Ohne make clean behalten Bibliotheken aus dem Dev-Build ihre alten
+# Ladepfade und die installierte App bricht, sobald der Dev-Ordner
+# fehlt oder umzieht. Deshalb pro Prefix immer sauber neu bauen.
+make clean >/dev/null
 make -j"$(sysctl -n hw.ncpu)" >/dev/null
 make install DESTDIR="$STAGE/root" >/dev/null
+
+if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | grep -q "$ROOT"; then
+  echo "FEHLER: scanimage referenziert Dev-Pfade" >&2
+  otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" >&2
+  exit 1
+fi
 
 # 2) CLI und GUI mit PyInstaller
 "$ROOT/.venv/bin/pip" -q install pyinstaller
@@ -69,7 +79,10 @@ hdiutil create -volname "JuiceScan" -srcfolder "$STAGE/payload" \
   -ov -format UDZO "$ROOT/build/JuiceScan.dmg" >/dev/null
 echo "DMG: $ROOT/build/JuiceScan.dmg (enthält JuiceScan.pkg)"
 
-# 5) Dev-Build im Repo wiederherstellen
+# 5) Dev-Build im Repo wiederherstellen (ebenfalls sauber)
 cd "$SRC"
 PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig" \
   ./configure --prefix="$ROOT/prefix" BACKENDS=genesys >/dev/null
+make clean >/dev/null
+make -j"$(sysctl -n hw.ncpu)" >/dev/null
+make install >/dev/null

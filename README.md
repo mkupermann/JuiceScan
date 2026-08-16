@@ -20,7 +20,7 @@ Silicon and Windows 11.
 
 <img width="3398" height="2122" alt="image" src="https://github.com/user-attachments/assets/6c57a956-7c01-4159-8a9c-d1687124ea88" />
 
-<img width="300" height="600" alt="image" src="https://github.com/user-attachments/assets/827ddc46-ad16-49b2-8d65-ac5db971f6d1" />
+<img width="270" height="500" alt="image" src="https://github.com/user-attachments/assets/827ddc46-ad16-49b2-8d65-ac5db971f6d1" />
 
 
 ## What it does

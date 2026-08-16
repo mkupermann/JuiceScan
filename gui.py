@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QSpinBox,
                                QVBoxLayout, QWidget)
 
+import autocrop
 import scan8600
+from frameeditor import FrameEditor
 
 RESOLUTIONS = {"flatbed": [300, 600, 1200],
                "film": [300, 600, 1200, 2400, 4800]}
@@ -112,12 +114,22 @@ class MainWindow(QWidget):
         root.addLayout(left, 0)
 
         # Rechte Spalte: Vorschau
-        self.preview = QLabel("Vorschau")
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview.setMinimumSize(420, 560)
-        self.preview.setStyleSheet(
-            "QLabel { border: 1px solid palette(mid); }")
-        root.addWidget(self.preview, 1)
+        right = QVBoxLayout()
+        self.preview = FrameEditor()
+        self.preview.setMinimumSize(420, 520)
+        right.addWidget(self.preview, 1)
+        self.editor_hint = QLabel(
+            "Rahmen ziehen: mit der Maus aufziehen, verschieben, "
+            "Backspace löscht den markierten Rahmen.")
+        self.editor_hint.setWordWrap(True)
+        self.editor_hint.hide()
+        right.addWidget(self.editor_hint)
+        self.btn_save = QPushButton("Ausschnitte speichern")
+        self.btn_save.clicked.connect(self.save_frames)
+        self.btn_save.setEnabled(False)
+        right.addWidget(self.btn_save)
+        root.addLayout(right, 1)
+        self._raw_path = None
 
         self.rb_flatbed.toggled.connect(self.sync_mode)
         self.ck_autocrop.toggled.connect(self.sync_split)
@@ -200,9 +212,24 @@ class MainWindow(QWidget):
     # --- Scan-Ablauf ------------------------------------------------------
     def start_scan(self):
         self.btn_scan.setEnabled(False)
+        self.btn_save.setEnabled(False)
         self.progress.setRange(0, 0)
         self.status.setText("Scanne… (erster Lauf kalibriert, dauert länger)")
-        self.worker = ScanWorker(self.build_args())
+        a = self.build_args()
+        self._wanted = a
+        if a.mode == "film" and not a.depth16:
+            # Filmscan liefert erst den Rohstreifen. Zuschnitt und
+            # Umkehrung passieren nach der Rahmenwahl im Editor.
+            import tempfile
+            raw = tempfile.NamedTemporaryFile(suffix=".tiff", delete=False)
+            a = argparse.Namespace(**vars(a))
+            a.autocrop = a.split = a.negative = False
+            a.format = "tiff"
+            a.output = raw.name
+            self._raw_path = raw.name
+        else:
+            self._raw_path = None
+        self.worker = ScanWorker(a)
         self.worker.done.connect(self.scan_done)
         self.worker.failed.connect(self.scan_failed)
         self.worker.start()
@@ -211,15 +238,61 @@ class MainWindow(QWidget):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
+        if self._raw_path:
+            self._show_editor(self._raw_path)
+            return
         self.status.setText(f"Fertig ({len(paths)} Bild"
                             + ("er" if len(paths) != 1 else "") + "):\n"
                             + "\n".join(paths))
-        pix = QPixmap(self._contact_sheet(paths) if len(paths) > 1
-                      else paths[0])
-        if not pix.isNull():
-            self.preview.setPixmap(pix.scaled(
-                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation))
+        self.editor_hint.hide()
+        self.preview.set_image(QPixmap(
+            self._contact_sheet(paths) if len(paths) > 1 else paths[0]))
+
+    def _show_editor(self, raw_path):
+        import numpy as np
+        from PIL import Image
+        arr = np.array(Image.open(raw_path).convert("RGB"))
+        self.preview.set_image(QPixmap(raw_path))
+        self.preview.clear_frames()
+        expected = self.sp_frames.value()
+        self.preview.set_frames(
+            autocrop.detect_film_frames(arr, expected or None))
+        self.editor_hint.show()
+        self.btn_save.setEnabled(True)
+        self.status.setText(
+            "Rahmen prüfen oder selbst ziehen, dann Ausschnitte speichern.")
+
+    def save_frames(self):
+        import numpy as np
+        from PIL import Image
+        rects = self.preview.frames()
+        if not rects or not self._raw_path:
+            self.status.setText("Keine Rahmen markiert.")
+            return
+        arr = np.array(Image.open(self._raw_path).convert("RGB"))
+        a = self._wanted
+        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        outs = []
+        h, w = arr.shape[:2]
+        for i, (x, y, rw, rh) in enumerate(rects, 1):
+            x0, y0 = max(0, x), max(0, y)
+            x1, y1 = min(w, x + rw), min(h, y + rh)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            crop = arr[y0:y1, x0:x1]
+            if a.negative:
+                crop = scan8600.invert_negative(crop)
+            p = pathlib.Path(self.ed_dir.text()) / f"scan_{stamp}_{i}.{ext}"
+            img = Image.fromarray(crop)
+            if a.format == "jpeg":
+                img.save(p, quality=95)
+            else:
+                img.save(p)
+            outs.append(str(p))
+        self.status.setText(f"{len(outs)} Bild"
+                            + ("er" if len(outs) != 1 else "")
+                            + " gespeichert:\n" + "\n".join(outs))
 
     @staticmethod
     def _contact_sheet(paths):

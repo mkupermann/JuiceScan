@@ -49,6 +49,18 @@ def test_negative_flag_parses():
     assert a.negative
 
 
+def test_depth16_adds_depth_flag():
+    a = scan8600.parse_args(["--mode", "film", "--depth16"])
+    cmd = scan8600.build_command(a, source_name=None)
+    assert cmd[cmd.index("--depth") + 1] == "16"
+
+
+def test_depth16_rejects_postprocessing():
+    import pytest
+    with pytest.raises(SystemExit):
+        scan8600.parse_args(["--mode", "film", "--depth16", "--negative"])
+
+
 def test_descratch_requires_film_mode():
     import pytest
     with pytest.raises(SystemExit):

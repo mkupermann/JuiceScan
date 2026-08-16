@@ -73,10 +73,12 @@ class MainWindow(QWidget):
         self.ck_negative = QCheckBox("Negativ umkehren")
         self.ck_autocrop = QCheckBox("Größe automatisch erkennen")
         self.ck_split = QCheckBox("Fotos einzeln speichern")
+        self.ck_depth16 = QCheckBox("16 Bit Archiv-TIFF (ohne Nachbearbeitung)")
         ob.addWidget(self.ck_negative)
         ob.addWidget(self.ck_descratch)
         ob.addWidget(self.ck_autocrop)
         ob.addWidget(self.ck_split)
+        ob.addWidget(self.ck_depth16)
         left.addWidget(opt_box)
 
         out_box = QGroupBox("Ziel")
@@ -112,6 +114,9 @@ class MainWindow(QWidget):
 
         self.rb_flatbed.toggled.connect(self.sync_mode)
         self.ck_autocrop.toggled.connect(self.sync_split)
+        self.ck_depth16.toggled.connect(self.sync_depth16)
+        for w in (self.ck_descratch, self.ck_negative, self.ck_autocrop):
+            w.toggled.connect(self.sync_depth16)
         self.sync_mode()
 
     # --- UI-Logik ---------------------------------------------------------
@@ -130,6 +135,28 @@ class MainWindow(QWidget):
         if m != "film":
             self.ck_descratch.setChecked(False)
         self.sync_split()
+
+    def sync_depth16(self):
+        # 16 Bit liefert das rohe Treiber-TIFF, jede Nachbearbeitung
+        # würde auf 8 Bit reduzieren. Beides zugleich geht nicht.
+        processing = (self.ck_descratch.isChecked()
+                      or self.ck_negative.isChecked()
+                      or self.ck_autocrop.isChecked())
+        self.ck_depth16.setEnabled(not processing)
+        if self.ck_depth16.isChecked():
+            for w in (self.ck_descratch, self.ck_negative,
+                      self.ck_autocrop, self.ck_split):
+                w.setChecked(False)
+                w.setEnabled(False)
+            self.cb_format.setCurrentText("tiff")
+            self.cb_format.setEnabled(False)
+        else:
+            self.cb_format.setEnabled(True)
+            m = self.mode()
+            self.ck_descratch.setEnabled(m == "film")
+            self.ck_negative.setEnabled(m == "film")
+            self.ck_autocrop.setEnabled(True)
+            self.sync_split()
 
     def sync_split(self):
         self.ck_split.setEnabled(self.ck_autocrop.isChecked())
@@ -157,6 +184,7 @@ class MainWindow(QWidget):
             negative=self.ck_negative.isChecked(),
             autocrop=self.ck_autocrop.isChecked(),
             split=self.ck_split.isChecked(),
+            depth16=self.ck_depth16.isChecked(),
         )
 
     # --- Scan-Ablauf ------------------------------------------------------

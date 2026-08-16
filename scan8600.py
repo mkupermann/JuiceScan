@@ -41,6 +41,9 @@ def parse_args(argv):
     p.add_argument("--split", action="store_true",
                    help="jedes erkannte Foto als eigene Datei "
                         "(erfordert --autocrop)")
+    p.add_argument("--depth16", action="store_true",
+                   help="16 Bit pro Kanal, nur reines TIFF ohne "
+                        "Nachbearbeitung")
     p.add_argument("--negative", action="store_true",
                    help="Negativ umkehren (Invertierung plus "
                         "Kanal-Streckung gegen die Orangemaske)")
@@ -56,6 +59,9 @@ def parse_args(argv):
         p.error("--descratch erfordert --mode film")
     if a.split and not a.autocrop:
         p.error("--split erfordert --autocrop")
+    if a.depth16 and (a.descratch or a.negative or a.autocrop
+                      or a.format != "tiff"):
+        p.error("--depth16 geht nur mit reinem TIFF ohne Nachbearbeitung")
     return a
 
 
@@ -69,6 +75,8 @@ def build_command(a, source_name):
     cmd = [str(SCANIMAGE), "--format=tiff",
            "--resolution", str(a.dpi),
            "--mode", "Gray" if a.gray else "Color"]
+    if getattr(a, "depth16", False):
+        cmd += ["--depth", "16"]
     if source_name:
         cmd += ["--source", source_name]
     for raw in getattr(a, "sane_opt", []) or []:

@@ -24,7 +24,7 @@ PREFIX = _default_prefix()
 _EXE = "scanimage.exe" if sys.platform == "win32" else "scanimage"
 SCANIMAGE = PREFIX / "bin" / _EXE
 SANE_ENV = {"SANE_CONFIG_DIR": str(PREFIX / "etc" / "sane.d")}
-DEFAULT_DPI = {"flatbed": 300, "film": 1200}
+DEFAULT_DPI = {"flatbed": 300, "film": 2400}
 
 
 def parse_args(argv):
@@ -41,6 +41,9 @@ def parse_args(argv):
     p.add_argument("--split", action="store_true",
                    help="jedes erkannte Foto als eigene Datei "
                         "(erfordert --autocrop)")
+    p.add_argument("--frames", type=int, default=0,
+                   help="Anzahl Bilder im Filmhalter, teilt den Streifen "
+                        "gleichmäßig (0 = automatisch über Basis-Lücken)")
     p.add_argument("--depth16", action="store_true",
                    help="16 Bit pro Kanal, nur reines TIFF ohne "
                         "Nachbearbeitung")
@@ -239,20 +242,37 @@ def _finalize(tiff_bytes, cleaned, a, out):
         arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
     else:
         arr = cleaned
-    if a.negative:
-        arr = invert_negative(arr)
+    # Reihenfolge: erst zuschneiden, dann invertieren. Bei Film erkennt
+    # die Rahmensuche auf dem Rohscan (helle Filmbasis), und jedes Frame
+    # bekommt seine eigene Tonwert-Streckung.
+    film = a.mode == "film"
     if a.autocrop:
         import autocrop as _ac
         if a.split:
-            crops = _ac.split_regions(arr) or [arr]
+            expected = getattr(a, "frames", 0)
+            crops = (_ac.split_film_frames(arr, expected) if film
+                     else _ac.split_regions(arr)) or [arr]
             outs = []
             for i, crop in enumerate(crops, 1):
+                if a.negative:
+                    crop = invert_negative(crop)
                 p = (out.with_stem(f"{out.stem}_{i}")
                      if len(crops) > 1 else out)
                 _save_array(crop, a, p)
                 outs.append(p)
             return outs
-        arr = _ac.crop_to_content(arr)
+        if film:
+            frames = _ac.detect_film_frames(arr)
+            if frames:
+                x0 = min(f[0] for f in frames)
+                y0 = min(f[1] for f in frames)
+                x1 = max(f[0] + f[2] for f in frames)
+                y1 = max(f[1] + f[3] for f in frames)
+                arr = arr[y0:y1, x0:x1]
+        else:
+            arr = _ac.crop_to_content(arr)
+    if a.negative:
+        arr = invert_negative(arr)
     _save_array(arr, a, out)
     return [out]
 

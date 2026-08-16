@@ -26,7 +26,7 @@ def test_film_mode_enables_descratch_and_dpi(app):
     w.rb_film.setChecked(True)
     assert w.ck_descratch.isEnabled()
     a = w.build_args()
-    assert a.mode == "film" and a.dpi == 1200
+    assert a.mode == "film" and a.dpi == 2400
 
 
 def test_descratch_disabled_on_flatbed(app):

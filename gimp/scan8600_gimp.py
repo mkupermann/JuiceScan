@@ -139,6 +139,11 @@ class Scan8600(Gimp.PlugIn):
         for w in (ck_descratch, ck_negative, ck_autocrop, ck_split):
             std.attach(w, 0, row, 2, 1)
             row += 1
+        sp_frames = Gtk.SpinButton(
+            adjustment=Gtk.Adjustment(lower=0, upper=12, step_increment=1),
+            digits=0)
+        add_row(std, row, "Anzahl Bilder im Halter (0 = auto)", sp_frames)
+        row += 1
         nb.append_page(std, Gtk.Label(label="Standard"))
 
         adv = grid()
@@ -156,7 +161,8 @@ class Scan8600(Gimp.PlugIn):
         nb.append_page(sc, Gtk.Label(label="Erweitert"))
 
         dlg.show_all()
-        return dlg, widgets, ck_descratch, ck_negative, ck_autocrop, ck_split
+        return (dlg, widgets, ck_descratch, ck_negative, ck_autocrop,
+                ck_split, sp_frames)
 
     @staticmethod
     def _value(opt, w):
@@ -186,8 +192,8 @@ class Scan8600(Gimp.PlugIn):
         opts_out = _run([str(scanimage), "-A"])
         options = scanoptions.parse(opts_out.stdout.decode(errors="replace"))
 
-        dlg, widgets, ck_descratch, ck_negative, ck_autocrop, ck_split = \
-            self._build_dialog(options)
+        (dlg, widgets, ck_descratch, ck_negative, ck_autocrop, ck_split,
+         sp_frames) = self._build_dialog(options)
         response = dlg.run()
         if response != Gtk.ResponseType.OK:
             dlg.destroy()
@@ -213,6 +219,9 @@ class Scan8600(Gimp.PlugIn):
             cmd.append("--autocrop")
             if ck_split.get_active():
                 cmd.append("--split")
+            n = int(sp_frames.get_value())
+            if n and "Transparency" in source:
+                cmd += ["--frames", str(n)]
         for name, (opt, w) in widgets.items():
             if name in STANDARD:
                 continue

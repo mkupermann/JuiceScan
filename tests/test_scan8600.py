@@ -8,7 +8,7 @@ def test_default_dpi_flatbed():
 
 def test_default_dpi_film():
     a = scan8600.parse_args(["--mode", "film"])
-    assert a.dpi == 1200
+    assert a.dpi == 2400
 
 
 def test_build_command_flatbed_color():

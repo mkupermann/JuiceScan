@@ -57,7 +57,7 @@ CLI:
 
 The options that matter:
 
-    --dpi N                  resolution, default 300 flatbed, 1200 film
+    --dpi N                  resolution, default 300 flatbed, 2400 film
     --gray                   grayscale instead of color
     --format tiff|png|jpeg   output format, default tiff
     --output PATH            target file
@@ -66,6 +66,8 @@ The options that matter:
     --depth16                16-bit archival TIFF, plain scans only
     --autocrop               detect content and crop to size
     --split                  save each detected photo as its own file
+    --frames N               number of frames in the film holder; splits
+                             the strip evenly (0 = auto via base gaps)
     --sane-opt OPT=VALUE     pass any further driver option through
 
 The first scan calibrates the scanner and takes longer. Calibration
@@ -82,6 +84,11 @@ inside GIMP yet, its option logic is covered by unit tests.
 
 - White documents on the white lid confuse the autocrop. A high
   contrast backing helps, black paper works.
+- Automatic film frame detection relies on bright film-base gaps
+  between frames. Dense image areas (a bright sky in the negative)
+  look just like a separator bar, so when frames touch, set the frame
+  count yourself with `--frames N` or the GUI field. That is the same
+  reason SilverFast shows you a frame overview to correct.
 - Transparency quality of the genesys backend sits below VueScan
   level. In return you own the whole stack.
 - Infrared dust removal cannot work on silver-based B/W film or

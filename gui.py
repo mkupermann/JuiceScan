@@ -11,13 +11,14 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QFileDialog, QFormLayout, QGroupBox,
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QProgressBar, QPushButton, QRadioButton,
+                               QSpinBox,
                                QVBoxLayout, QWidget)
 
 import scan8600
 
 RESOLUTIONS = {"flatbed": [300, 600, 1200],
                "film": [300, 600, 1200, 2400, 4800]}
-DEFAULT_RES = {"flatbed": "300", "film": "1200"}
+DEFAULT_RES = {"flatbed": "300", "film": "2400"}
 
 
 class ScanWorker(QThread):
@@ -79,6 +80,12 @@ class MainWindow(QWidget):
         ob.addWidget(self.ck_autocrop)
         ob.addWidget(self.ck_split)
         ob.addWidget(self.ck_depth16)
+        fr = QHBoxLayout()
+        fr.addWidget(QLabel("Anzahl Bilder im Halter (0 = automatisch)"))
+        self.sp_frames = QSpinBox()
+        self.sp_frames.setRange(0, 12)
+        fr.addWidget(self.sp_frames)
+        ob.addLayout(fr)
         left.addWidget(opt_box)
 
         out_box = QGroupBox("Ziel")
@@ -130,8 +137,10 @@ class MainWindow(QWidget):
         self.cb_dpi.setCurrentText(DEFAULT_RES[m])
         self.ck_descratch.setEnabled(m == "film")
         self.ck_negative.setEnabled(m == "film")
+        self.sp_frames.setEnabled(m == "film")
         if m != "film":
             self.ck_negative.setChecked(False)
+            self.sp_frames.setValue(0)
         if m != "film":
             self.ck_descratch.setChecked(False)
         self.sync_split()
@@ -185,6 +194,7 @@ class MainWindow(QWidget):
             autocrop=self.ck_autocrop.isChecked(),
             split=self.ck_split.isChecked(),
             depth16=self.ck_depth16.isChecked(),
+            frames=self.sp_frames.value(),
         )
 
     # --- Scan-Ablauf ------------------------------------------------------
@@ -201,12 +211,38 @@ class MainWindow(QWidget):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
-        self.status.setText("Fertig:\n" + "\n".join(paths))
-        pix = QPixmap(paths[0])
+        self.status.setText(f"Fertig ({len(paths)} Bild"
+                            + ("er" if len(paths) != 1 else "") + "):\n"
+                            + "\n".join(paths))
+        pix = QPixmap(self._contact_sheet(paths) if len(paths) > 1
+                      else paths[0])
         if not pix.isNull():
             self.preview.setPixmap(pix.scaled(
                 self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
+
+    @staticmethod
+    def _contact_sheet(paths):
+        # Übersicht aller erkannten Bilder nebeneinander.
+        import tempfile
+
+        from PIL import Image
+        thumbs = []
+        for p in paths:
+            im = Image.open(p).convert("RGB")
+            im.thumbnail((360, 360))
+            thumbs.append(im)
+        gap = 12
+        w = sum(t.width for t in thumbs) + gap * (len(thumbs) + 1)
+        h = max(t.height for t in thumbs) + 2 * gap
+        sheet = Image.new("RGB", (w, h), (48, 48, 48))
+        x = gap
+        for t in thumbs:
+            sheet.paste(t, (x, gap + (h - 2 * gap - t.height) // 2))
+            x += t.width + gap
+        out = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        sheet.save(out.name)
+        return out.name
 
     def scan_failed(self, msg):
         self.progress.setRange(0, 1)

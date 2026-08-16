@@ -99,16 +99,18 @@ grep -q 'define kill' sanei/sanei_access.c || \
   sed -i 's|#include "../include/sane/sanei_access.h"|#include "../include/sane/sanei_access.h"\n#ifdef __MINGW32__\n#define kill(pid, sig) 0\n#endif|' \
     sanei/sanei_access.c
 
-# C++-verträglich: Parametername 'new' im sigprocmask-Fallback-Prototyp.
-sed -i 's|int sigprocmask (int how, int \*new, int \*old);|int sigprocmask (int how, int *nset, int *oset);|' \
-  include/sane/config.h.in
-
 # MinGW: tv_sec ist long, localtime erwartet time_t*.
 grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
   sed -i 's|t = localtime (&tv.tv_sec);|{ time_t _tsec = tv.tv_sec; t = localtime (\&_tsec); }|' \
     sanei/sanei_init_debug.c
 
 autoreconf -f -i
+
+# C++-verträglich: Parametername 'new' im sigprocmask-Fallback-Prototyp.
+# config.h.in existiert erst nach autoreconf.
+sed -i 's|int sigprocmask (int how, int \*new, int \*old);|int sigprocmask (int how, int *nset, int *oset);|' \
+  include/sane/config.h.in
+
 CFLAGS="-O2 -Wno-incompatible-pointer-types -Wno-implicit-function-declaration" \
   ./configure --prefix="$PREFIX" BACKENDS=genesys
 make -j"$(nproc)"

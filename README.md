@@ -25,6 +25,14 @@ Optionen:
     --output PATH        Zieldatei (Default scan_<timestamp>.<ext>)
     --descratch          Zweiter Infrarot-Pass, Defektmaske, Inpainting
                          (Prinzip SilverFast iSRD/FARE; nur --mode film)
+    --autocrop           Fotos/Dokumente automatisch erkennen und auf die
+                         tatsächliche Größe zuschneiden
+    --split              jedes erkannte Foto als eigene Datei speichern
+                         (scan_x_1.tiff, scan_x_2.tiff, ...; erfordert --autocrop)
+
+Hinweis zu --autocrop: weißes Dokument auf weißem Deckel ist für die
+Erkennung unzuverlässig — kontrastreiche Auflage (z. B. schwarzes
+Tonpapier hinter dem Dokument) verbessert das Ergebnis deutlich.
 
 Der erste Scan kalibriert den Scanner (dauert länger); Kalibrierdaten
 liegen unter `~/.sane`.

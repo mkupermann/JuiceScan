@@ -23,11 +23,18 @@ def parse_args(argv):
     p.add_argument("--gray", action="store_true")
     p.add_argument("--descratch", action="store_true",
                    help="IR-basierte Kratzerentfernung (nur --mode film)")
+    p.add_argument("--autocrop", action="store_true",
+                   help="auf erkannte Fotos/Dokumente zuschneiden")
+    p.add_argument("--split", action="store_true",
+                   help="jedes erkannte Foto als eigene Datei "
+                        "(erfordert --autocrop)")
     a = p.parse_args(argv)
     if a.dpi is None:
         a.dpi = DEFAULT_DPI[a.mode]
     if a.descratch and a.mode != "film":
         p.error("--descratch erfordert --mode film")
+    if a.split and not a.autocrop:
+        p.error("--split erfordert --autocrop")
     return a
 
 
@@ -85,14 +92,20 @@ def scanimage_run(cmd, **kw):
     return subprocess.run(cmd, env=env, capture_output=True, **kw)
 
 
-def _run_pass(a, source):
+def _run_pass(a, source, retries=1):
     r = scanimage_run(build_command(a, source))
     if r.returncode != 0:
         err = r.stderr.decode(errors="replace")
-        if "no SANE devices" in err or "Invalid argument" in err:
+        if "no SANE devices" in err:
             raise ScanError(
                 "Scanner nicht gefunden. USB-Kabel prüfen, dann: "
                 "ioreg -p IOUSB | grep -i CanoScan. Details:\n" + err)
+        if "Invalid argument" in err and retries > 0:
+            # Transient direkt nach vorherigem Scan (Gerät noch busy/homing):
+            # kurz warten, einmal neu versuchen.
+            import time
+            time.sleep(5)
+            return _run_pass(a, source, retries - 1)
         raise ScanError(err)
     return r.stdout
 
@@ -115,6 +128,7 @@ def run_scan(a):
                     "Keine Infrarot-Quelle für --descratch gefunden. "
                     "Verfügbare Optionen:\n" + opts)
     tiff_bytes = _run_pass(a, source)
+    cleaned = None
     if ir_source:
         import io
 
@@ -128,30 +142,55 @@ def run_scan(a):
         vis = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
         ir = np.array(Image.open(io.BytesIO(ir_bytes)).convert("L"))
         cleaned = _ds.remove_defects(vis, ir)
-        img = Image.fromarray(cleaned)
-        if a.format == "jpeg":
-            img.save(out, quality=95)
-        else:
-            img.save(out)
-        return out
-    if a.format == "tiff":
-        out.write_bytes(tiff_bytes)
+    return _finalize(tiff_bytes, cleaned, a, out)
+
+
+def _save_array(arr, a, path):
+    from PIL import Image
+    img = Image.fromarray(arr)
+    if a.format == "jpeg":
+        img.save(path, quality=95)
     else:
-        import io
-        from PIL import Image
-        img = Image.open(io.BytesIO(tiff_bytes))
-        img.save(out, quality=95) if a.format == "jpeg" else img.save(out)
-    return out
+        img.save(path)
+
+
+def _finalize(tiff_bytes, cleaned, a, out):
+    if cleaned is None and a.format == "tiff" and not a.autocrop:
+        out.write_bytes(tiff_bytes)
+        return [out]
+    import io
+
+    import numpy as np
+    from PIL import Image
+    if cleaned is None:
+        arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
+    else:
+        arr = cleaned
+    if a.autocrop:
+        import autocrop as _ac
+        if a.split:
+            crops = _ac.split_regions(arr) or [arr]
+            outs = []
+            for i, crop in enumerate(crops, 1):
+                p = (out.with_stem(f"{out.stem}_{i}")
+                     if len(crops) > 1 else out)
+                _save_array(crop, a, p)
+                outs.append(p)
+            return outs
+        arr = _ac.crop_to_content(arr)
+    _save_array(arr, a, out)
+    return [out]
 
 
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
     try:
-        out = run_scan(a)
+        outs = run_scan(a)
     except ScanError as e:
         print(f"scan8600: {e}", file=sys.stderr)
         return 1
-    print(out)
+    for out in outs:
+        print(out)
     return 0
 
 

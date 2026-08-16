@@ -32,11 +32,11 @@ install_name_tool -id "$DIST_PREFIX/lib/libsane.1.dylib" \
 codesign --force --sign - "$STAGE/root$DIST_PREFIX/lib/libsane.1.dylib"
 for bin in "$STAGE/root$DIST_PREFIX"/bin/* "$STAGE/root$DIST_PREFIX"/sbin/*; do
   [ -f "$bin" ] && file "$bin" | grep -q Mach-O || continue
-  otool -L "$bin" | awk 'NR>1 {print $1}' | grep 'libsane' | \
-    while read -r dep; do
-      install_name_tool -change "$dep" \
-        "$DIST_PREFIX/lib/libsane.1.dylib" "$bin"
-    done
+  deps=$(otool -L "$bin" | awk 'NR>1 {print $1}' | grep 'libsane' || true)
+  for dep in $deps; do
+    install_name_tool -change "$dep" \
+      "$DIST_PREFIX/lib/libsane.1.dylib" "$bin"
+  done
   codesign --force --sign - "$bin"
 done
 

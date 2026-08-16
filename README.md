@@ -1,14 +1,23 @@
 # JuiceScan
 
-Canon stopped shipping drivers for the CanoScan 8600F years ago. No
-current macOS support, no Windows 11 support. The scanner itself is
-still a fine piece of hardware, with a transparency unit and an
-infrared lamp for dust detection. This repo keeps it alive.
-
-The stack has three parts. A self-compiled SANE genesys backend as the
-driver. A CLI and a GUI for scanning. A GIMP 3 plugin that exposes
-every driver option inside GIMP. Runs on macOS (Apple Silicon) and
+Old scanners die when their vendor drivers stop shipping, not when the
+hardware breaks. JuiceScan keeps them alive on current macOS and
 Windows 11.
+
+The app is scanner-agnostic: it discovers any SANE-compatible device,
+lets you pick it, and builds its options from what the driver reports.
+The bundled driver stack currently ships the SANE genesys backend,
+which covers the Canon CanoScan and LiDE families and related
+GL-chipset scanners (Plustek, Medion, Visioneer among others).
+Hardware-tested is the Canon CanoScan 8600F, the machine this project
+was built around. Every other model runs on the driver database's
+word, not ours, and counts as untested until someone scans with it.
+Bundling the full SANE backend set for all vendors is the next step on
+the roadmap.
+
+The stack has three parts. A self-compiled SANE driver backend. A CLI
+and a GUI for scanning. A GIMP 3 plugin that exposes every driver
+option inside GIMP. Runs on macOS (Apple Silicon) and Windows 11.
 
 ## What it does
 

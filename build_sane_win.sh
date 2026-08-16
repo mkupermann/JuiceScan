@@ -118,6 +118,7 @@ sed -i 's|int sigprocmask (int how, int \*new, int \*old);|int sigprocmask (int 
 
 CFLAGS="-O2 -Wno-incompatible-pointer-types -Wno-implicit-function-declaration" \
   LIBS="-lws2_32 -lstdc++" \
+  LDFLAGS="-Wl,--allow-multiple-definition" \
   ./configure --prefix="$PREFIX" BACKENDS=genesys
 make -j"$(nproc)"
 make install

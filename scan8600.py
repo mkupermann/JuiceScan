@@ -281,20 +281,20 @@ def run_scan(a):
             "SCAN8600_PREFIX at the driver folder.")
     
     # Get device info if not specified
+    # Note: We don't set device to a specific address if not provided by user.
+    # This avoids USB address changes between detection and scanning.
+    # If user didn't specify --device, we let scanimage use the default device.
     device = getattr(a, "device", None)
-    if device is None:
-        # Try to auto-detect the first available device
-        from discovery import ScannerDiscovery
-        disc = ScannerDiscovery(str(SCANIMAGE))
-        default_dev = disc.get_default_device()
-        if default_dev:
-            device = default_dev.device_file
     
     out = pathlib.Path(a.output or default_output(a))
     source = ir_source = None
     
     # Probe device options to find available sources
-    opts = _probe_device_options(device) if device else _probe_options()
+    # If device is specified, use it; otherwise probe without device (uses default)
+    if device:
+        opts = _probe_device_options(device)
+    else:
+        opts = _probe_options()
     
     if a.mode == "film":
         source = find_film_source(opts)

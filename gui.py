@@ -87,6 +87,7 @@ class MainWindow(QWidget):
         left.addWidget(out_box)
 
         self.btn_scan = QPushButton("Scannen")
+        self.btn_scan.setObjectName("scanButton")
         self.btn_scan.setMinimumHeight(44)
         self.btn_scan.clicked.connect(self.start_scan)
         left.addWidget(self.btn_scan)
@@ -180,8 +181,21 @@ class MainWindow(QWidget):
         QMessageBox.critical(self, "Scan fehlgeschlagen", msg)
 
 
+STYLE = """
+QGroupBox { font-weight: 600; margin-top: 12px; padding-top: 6px; }
+QGroupBox::title { subcontrol-origin: margin; left: 8px; }
+QPushButton#scanButton {
+    background: #0a84ff; color: white; border: none;
+    border-radius: 8px; font-size: 15px; font-weight: 600;
+}
+QPushButton#scanButton:hover { background: #339cff; }
+QPushButton#scanButton:disabled { background: palette(mid); }
+"""
+
+
 def main():
     app = QApplication(sys.argv)
+    app.setStyleSheet(STYLE)
     w = MainWindow()
     w.resize(900, 640)
     w.show()

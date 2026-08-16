@@ -37,6 +37,18 @@ def test_film_source_skips_ir_variant():
     assert scan8600.find_film_source(OPTIONS) == "Transparency Adapter"
 
 
+def test_invert_negative_brightens_dark():
+    arr = np.full((20, 20, 3), 40, np.uint8)
+    arr[5:10, 5:10] = 220
+    out = scan8600.invert_negative(arr)
+    assert out[0, 0, 0] > out[7, 7, 0]
+
+
+def test_negative_flag_parses():
+    a = scan8600.parse_args(["--mode", "film", "--negative"])
+    assert a.negative
+
+
 def test_descratch_requires_film_mode():
     import pytest
     with pytest.raises(SystemExit):

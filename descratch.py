@@ -7,8 +7,22 @@ def defect_mask(ir_gray):
     thr, _ = cv2.threshold(ir_gray, 0, 255,
                            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     _, mask = cv2.threshold(ir_gray, thr, 255, cv2.THRESH_BINARY_INV)
+    # Kratzer und Staub sind klein und schmal. Grosse oder randberührende
+    # dunkle Flächen sind Filmhalter, Bildrand oder dichte Negativpartien
+    # und dürfen nicht übermalt werden.
+    h, w = mask.shape
+    max_area = max(400, int(0.01 * h * w))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+    out = np.zeros_like(mask)
+    for i in range(1, n):
+        x, y, bw, bh, area = stats[i]
+        if area > max_area:
+            continue
+        if x == 0 or y == 0 or x + bw == w or y + bh == h:
+            continue
+        out[labels == i] = 255
     kernel = np.ones((5, 5), np.uint8)
-    return cv2.dilate(mask, kernel, iterations=1)
+    return cv2.dilate(out, kernel, iterations=1)
 
 
 def remove_defects(visible_rgb, ir_gray):

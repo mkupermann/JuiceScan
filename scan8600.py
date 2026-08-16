@@ -41,6 +41,9 @@ def parse_args(argv):
     p.add_argument("--split", action="store_true",
                    help="jedes erkannte Foto als eigene Datei "
                         "(erfordert --autocrop)")
+    p.add_argument("--negative", action="store_true",
+                   help="Negativ umkehren (Invertierung plus "
+                        "Kanal-Streckung gegen die Orangemaske)")
     p.add_argument("--sane-opt", action="append", default=[],
                    metavar="OPT=WERT",
                    help="beliebige scanimage-Option ohne führende Striche "
@@ -197,8 +200,22 @@ def _save_array(arr, a, path):
         img.save(path)
 
 
+def invert_negative(arr):
+    import numpy as np
+    inv = 255 - arr
+    if inv.ndim == 3:
+        for c in range(inv.shape[2]):
+            ch = inv[..., c].astype(np.float32)
+            lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
+            if hi > lo:
+                inv[..., c] = np.clip(
+                    (ch - lo) * 255.0 / (hi - lo), 0, 255).astype(np.uint8)
+    return inv
+
+
 def _finalize(tiff_bytes, cleaned, a, out):
-    if cleaned is None and a.format == "tiff" and not a.autocrop:
+    plain = a.format == "tiff" and not a.autocrop and not a.negative
+    if cleaned is None and plain:
         out.write_bytes(tiff_bytes)
         return [out]
     import io
@@ -209,6 +226,8 @@ def _finalize(tiff_bytes, cleaned, a, out):
         arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
     else:
         arr = cleaned
+    if a.negative:
+        arr = invert_negative(arr)
     if a.autocrop:
         import autocrop as _ac
         if a.split:

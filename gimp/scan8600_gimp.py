@@ -133,9 +133,10 @@ class Scan8600(Gimp.PlugIn):
                 add_row(std, row, title, w)
                 row += 1
         ck_descratch = Gtk.CheckButton(label="Kratzer entfernen (Infrarot)")
+        ck_negative = Gtk.CheckButton(label="Negativ umkehren")
         ck_autocrop = Gtk.CheckButton(label="Größe automatisch erkennen")
         ck_split = Gtk.CheckButton(label="Fotos einzeln speichern")
-        for w in (ck_descratch, ck_autocrop, ck_split):
+        for w in (ck_descratch, ck_negative, ck_autocrop, ck_split):
             std.attach(w, 0, row, 2, 1)
             row += 1
         nb.append_page(std, Gtk.Label(label="Standard"))
@@ -155,7 +156,7 @@ class Scan8600(Gimp.PlugIn):
         nb.append_page(sc, Gtk.Label(label="Erweitert"))
 
         dlg.show_all()
-        return dlg, widgets, ck_descratch, ck_autocrop, ck_split
+        return dlg, widgets, ck_descratch, ck_negative, ck_autocrop, ck_split
 
     @staticmethod
     def _value(opt, w):
@@ -185,7 +186,7 @@ class Scan8600(Gimp.PlugIn):
         opts_out = _run([str(scanimage), "-A"])
         options = scanoptions.parse(opts_out.stdout.decode(errors="replace"))
 
-        dlg, widgets, ck_descratch, ck_autocrop, ck_split = \
+        dlg, widgets, ck_descratch, ck_negative, ck_autocrop, ck_split = \
             self._build_dialog(options)
         response = dlg.run()
         if response != Gtk.ResponseType.OK:
@@ -206,6 +207,8 @@ class Scan8600(Gimp.PlugIn):
             cmd.append("--gray")
         if ck_descratch.get_active() and "Transparency" in source:
             cmd.append("--descratch")
+        if ck_negative.get_active() and "Transparency" in source:
+            cmd.append("--negative")
         if ck_autocrop.get_active():
             cmd.append("--autocrop")
             if ck_split.get_active():

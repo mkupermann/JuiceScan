@@ -70,8 +70,10 @@ class MainWindow(QWidget):
         opt_box = QGroupBox("Verarbeitung")
         ob = QVBoxLayout(opt_box)
         self.ck_descratch = QCheckBox("Kratzer entfernen (Infrarot)")
+        self.ck_negative = QCheckBox("Negativ umkehren")
         self.ck_autocrop = QCheckBox("Größe automatisch erkennen")
         self.ck_split = QCheckBox("Fotos einzeln speichern")
+        ob.addWidget(self.ck_negative)
         ob.addWidget(self.ck_descratch)
         ob.addWidget(self.ck_autocrop)
         ob.addWidget(self.ck_split)
@@ -122,6 +124,9 @@ class MainWindow(QWidget):
         self.cb_dpi.addItems([str(r) for r in RESOLUTIONS[m]])
         self.cb_dpi.setCurrentText(DEFAULT_RES[m])
         self.ck_descratch.setEnabled(m == "film")
+        self.ck_negative.setEnabled(m == "film")
+        if m != "film":
+            self.ck_negative.setChecked(False)
         if m != "film":
             self.ck_descratch.setChecked(False)
         self.sync_split()
@@ -149,6 +154,7 @@ class MainWindow(QWidget):
             output=str(out),
             gray=self.cb_color.currentText() == "Graustufen",
             descratch=self.ck_descratch.isChecked(),
+            negative=self.ck_negative.isChecked(),
             autocrop=self.ck_autocrop.isChecked(),
             split=self.ck_split.isChecked(),
         )

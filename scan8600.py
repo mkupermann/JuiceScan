@@ -93,6 +93,9 @@ def build_command(a, source_name):
     return cmd
 
 
+LAST_WARNINGS = []
+
+
 class ScanError(Exception):
     pass
 
@@ -172,6 +175,7 @@ def _probe_options(retries=3):
 
 
 def run_scan(a):
+    LAST_WARNINGS.clear()
     if not SCANIMAGE.exists():
         raise ScanError(
             f"Driver not found at {SCANIMAGE}. Install the pkg from the DMG "
@@ -206,7 +210,14 @@ def run_scan(a):
         ir_bytes = _run_pass(ir_args, ir_source)
         vis = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
         ir = np.array(Image.open(io.BytesIO(ir_bytes)).convert("L"))
-        cleaned = _ds.remove_defects(vis, ir)
+        if _ds.is_silver_film(vis, ir):
+            LAST_WARNINGS.append(
+                "Infrared scratch removal skipped: this looks like "
+                "silver-based B/W film. Silver blocks infrared just like "
+                "dust does, so inpainting would destroy image content. "
+                "This is a physical limit, not a bug.")
+        else:
+            cleaned = _ds.remove_defects(vis, ir)
     return _finalize(tiff_bytes, cleaned, a, out)
 
 
@@ -287,6 +298,8 @@ def main(argv=None):
     except ScanError as e:
         print(f"scan8600: {e}", file=sys.stderr)
         return 1
+    for w in LAST_WARNINGS:
+        print(f"scan8600: warning: {w}", file=sys.stderr)
     for out in outs:
         print(out)
     return 0

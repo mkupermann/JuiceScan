@@ -259,8 +259,10 @@ class MainWindow(QWidget):
             autocrop.detect_film_frames(arr, expected or None))
         self.editor_hint.show()
         self.btn_save.setEnabled(True)
-        self.status.setText(
-            "Check the frames or draw your own, then save the crops.")
+        text = "Check the frames or draw your own, then save the crops."
+        if scan8600.LAST_WARNINGS:
+            text += "\n\n" + "\n".join(scan8600.LAST_WARNINGS)
+        self.status.setText(text)
 
     def save_frames(self):
         import numpy as np

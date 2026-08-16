@@ -28,6 +28,19 @@ def test_remove_defects_inpaints():
     assert out[5, 5, 0] == 128
 
 
+def test_is_silver_film_detects_correlated_ir():
+    rng = np.random.default_rng(1)
+    pattern = rng.integers(30, 220, (64, 64), dtype=np.uint8)
+    vis = np.stack([pattern] * 3, axis=-1)
+    ir = pattern.copy()                      # IR spiegelt die Dichte
+    assert descratch.is_silver_film(vis, ir)
+
+
+def test_is_silver_film_negative_on_dye_film():
+    vis, ir = _synthetic()                   # IR fast leer, nur Kratzer
+    assert not descratch.is_silver_film(vis, ir)
+
+
 def test_find_ir_source():
     assert scan8600.find_ir_source(OPTIONS) == "Transparency Adapter Infrared"
     assert scan8600.find_ir_source("--source Flatbed [Flatbed]") is None

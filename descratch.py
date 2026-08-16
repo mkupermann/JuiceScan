@@ -25,6 +25,20 @@ def defect_mask(ir_gray):
     return cv2.dilate(out, kernel, iterations=1)
 
 
+def is_silver_film(visible_rgb, ir_gray):
+    """Silberbasierter S/W-Film blockt Infrarot flächig. Das IR-Bild ist
+    dann eine Dichtekarte des Motivs statt einer fast leeren Staubkarte,
+    und Inpainting würde Bildinhalt zerstören."""
+    g = cv2.cvtColor(visible_rgb, cv2.COLOR_RGB2GRAY)
+    size = (256, 256)
+    sg = cv2.resize(g, size).astype(np.float32).ravel()
+    si = cv2.resize(ir_gray, size).astype(np.float32).ravel()
+    if si.std() < 5 or sg.std() < 5:
+        return False
+    corr = float(np.corrcoef(sg, si)[0, 1])
+    return corr > 0.6
+
+
 def remove_defects(visible_rgb, ir_gray):
     if ir_gray.shape[:2] != visible_rgb.shape[:2]:
         ir_gray = cv2.resize(ir_gray,

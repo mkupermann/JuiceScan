@@ -26,6 +26,9 @@ def test_build_command_film_gray_sets_source():
     cmd = scan8600.build_command(a, source_name="Transparency Adapter")
     assert cmd[cmd.index("--source") + 1] == "Transparency Adapter"
     assert cmd[cmd.index("--mode") + 1] == "Gray"
+    # Quelle muss vor der Auflösung stehen, sonst rundet scanimage die
+    # Auflösung gegen die Flachbett-Liste ab.
+    assert cmd.index("--source") < cmd.index("--resolution")
 
 
 def test_sane_opt_passthrough():

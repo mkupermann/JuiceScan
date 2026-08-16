@@ -74,17 +74,20 @@ def default_output(a):
 
 
 def build_command(a, source_name):
-    cmd = [str(SCANIMAGE), "--format=tiff",
-           "--resolution", str(a.dpi),
-           "--mode", "Gray" if a.gray else "Color",
-           # Kalibrier-Cache nie verfallen lassen. Ohne das verwirft
-           # genesys die Kalibrierung nach 60 Minuten und fährt bei
-           # jedem App-Start minutenlange Referenzfahrten.
-           "--expiration-time", "-1"]
-    if getattr(a, "depth16", False):
-        cmd += ["--depth", "16"]
+    # Reihenfolge ist bedeutsam: scanimage wertet Optionen sequenziell
+    # aus. Die Quelle muss VOR der Auflösung stehen, sonst wird die
+    # Auflösung gegen die Liste der Standardquelle geprüft und still
+    # abgerundet (Flachbett kann nur bis 1200, Durchlicht bis 4800).
+    cmd = [str(SCANIMAGE), "--format=tiff"]
     if source_name:
         cmd += ["--source", source_name]
+    cmd += ["--resolution", str(a.dpi),
+            "--mode", "Gray" if a.gray else "Color",
+            # Kalibrier-Cache nie verfallen lassen, sonst verwirft
+            # genesys die Kalibrierung nach 60 Minuten.
+            "--expiration-time", "-1"]
+    if getattr(a, "depth16", False):
+        cmd += ["--depth", "16"]
     for raw in getattr(a, "sane_opt", []) or []:
         key, _, val = raw.partition("=")
         key = key.lstrip("-")

@@ -125,6 +125,8 @@ CFLAGS="-O2 -Wno-incompatible-pointer-types -Wno-implicit-function-declaration" 
   LIBS="-lws2_32 -lstdc++" \
   LDFLAGS="-Wl,--allow-multiple-definition" \
   ./configure --prefix="$PREFIX" BACKENDS=genesys
-make -j"$(nproc)"
-make install
+# doc/po/testsuite braucht das Paket nicht, doc bricht unter MinGW.
+NEEDED='include lib sanei backend frontend'
+make -j"$(nproc)" SUBDIRS="$NEEDED"
+make install SUBDIRS="$NEEDED"
 "$PREFIX/bin/scanimage" --version

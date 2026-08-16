@@ -105,7 +105,8 @@ grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
     sanei/sanei_init_debug.c
 
 autoreconf -f -i
-./configure --prefix="$PREFIX" BACKENDS=genesys
+CFLAGS="-O2 -Wno-incompatible-pointer-types -Wno-implicit-function-declaration" \
+  ./configure --prefix="$PREFIX" BACKENDS=genesys
 make -j"$(nproc)"
 make install
 "$PREFIX/bin/scanimage" --version

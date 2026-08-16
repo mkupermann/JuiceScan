@@ -30,6 +30,69 @@ void vsyslog(int priority, const char *format, va_list args)
 { (void) priority; (void) format; (void) args; }
 EOF
 
+# MinGW: Parallelport und SCSI gibt es hier nicht, USB reicht.
+# Stubs mit den offiziellen Signaturen, damit sane-find-scanner linkt.
+cat > sanei/sanei_pio.c <<'EOF'
+/* MinGW-Stub: kein Parallelport unter Windows. */
+#include "../include/sane/config.h"
+#include "../include/sane/sane.h"
+#include "../include/sane/sanei_pio.h"
+SANE_Status sanei_pio_open (const char *dev, int *fd)
+{ (void) dev; (void) fd; return SANE_STATUS_UNSUPPORTED; }
+void sanei_pio_close (int fd) { (void) fd; }
+int sanei_pio_read (int fd, u_char *buf, int n)
+{ (void) fd; (void) buf; (void) n; return -1; }
+int sanei_pio_write (int fd, const u_char *buf, int n)
+{ (void) fd; (void) buf; (void) n; return -1; }
+EOF
+cat > sanei/sanei_scsi.c <<'EOF'
+/* MinGW-Stub: kein SCSI-Pfad, der 8600F läuft über USB. */
+#include "../include/sane/config.h"
+#include "../include/sane/sane.h"
+#include "../include/sane/sanei_scsi.h"
+int sanei_scsi_max_request_size = 0;
+void sanei_scsi_find_devices (const char *vendor, const char *model,
+                              const char *type, int bus, int channel,
+                              int id, int lun,
+                              SANE_Status (*attach) (const char *dev))
+{ (void) vendor; (void) model; (void) type; (void) bus; (void) channel;
+  (void) id; (void) lun; (void) attach; }
+SANE_Status sanei_scsi_open (const char *device_name, int *fd,
+                             SANEI_SCSI_Sense_Handler handler,
+                             void *handler_arg)
+{ (void) device_name; (void) fd; (void) handler; (void) handler_arg;
+  return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_open_extended (const char *device_name, int *fd,
+                                      SANEI_SCSI_Sense_Handler handler,
+                                      void *handler_arg, int *buffersize)
+{ (void) device_name; (void) fd; (void) handler; (void) handler_arg;
+  (void) buffersize; return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_req_enter (int fd, const void *src, size_t src_size,
+                                  void *dst, size_t *dst_size, void **idp)
+{ (void) fd; (void) src; (void) src_size; (void) dst; (void) dst_size;
+  (void) idp; return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_req_enter2 (int fd, const void *cmd, size_t cmd_size,
+                                   const void *src, size_t src_size,
+                                   void *dst, size_t *dst_size, void **idp)
+{ (void) fd; (void) cmd; (void) cmd_size; (void) src; (void) src_size;
+  (void) dst; (void) dst_size; (void) idp;
+  return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_req_wait (void *id)
+{ (void) id; return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_cmd (int fd, const void *src, size_t src_size,
+                            void *dst, size_t *dst_size)
+{ (void) fd; (void) src; (void) src_size; (void) dst; (void) dst_size;
+  return SANE_STATUS_UNSUPPORTED; }
+SANE_Status sanei_scsi_cmd2 (int fd, const void *cmd, size_t cmd_size,
+                             const void *src, size_t src_size,
+                             void *dst, size_t *dst_size)
+{ (void) fd; (void) cmd; (void) cmd_size; (void) src; (void) src_size;
+  (void) dst; (void) dst_size; return SANE_STATUS_UNSUPPORTED; }
+void sanei_scsi_req_flush_all (void) { }
+void sanei_scsi_req_flush_all_extended (int fd) { (void) fd; }
+void sanei_scsi_close (int fd) { (void) fd; }
+EOF
+
 # MinGW: tv_sec ist long, localtime erwartet time_t*.
 grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
   sed -i 's|t = localtime (&tv.tv_sec);|{ time_t _tsec = tv.tv_sec; t = localtime (\&_tsec); }|' \

@@ -237,15 +237,23 @@ def _save_array(arr, a, path):
 
 def invert_negative(arr):
     import numpy as np
-    inv = 255 - arr
+    inv = (255 - arr).astype(np.float32)
     if inv.ndim == 3:
+        # Grauwelt-Abgleich: Farbstiche der Lampe (kalte Lampe scannt
+        # rötlich, invertiert grünlich) auf neutrales Grau ziehen.
+        means = inv.reshape(-1, inv.shape[2]).mean(axis=0)
+        target = float(means.mean())
         for c in range(inv.shape[2]):
-            ch = inv[..., c].astype(np.float32)
-            lo, hi = np.percentile(ch, 1), np.percentile(ch, 99)
-            if hi > lo:
-                inv[..., c] = np.clip(
-                    (ch - lo) * 255.0 / (hi - lo), 0, 255).astype(np.uint8)
-    return inv
+            if means[c] > 1:
+                inv[..., c] *= target / means[c]
+        inv = np.clip(inv, 0, 255)
+        # Eine gemeinsame Streckung ueber die Luminanz statt pro Kanal,
+        # sonst zerlegt die Streckung den Grauwelt-Abgleich wieder.
+        gray = inv.mean(axis=2)
+        lo, hi = np.percentile(gray, 1), np.percentile(gray, 99)
+        if hi > lo:
+            inv = np.clip((inv - lo) * 255.0 / (hi - lo), 0, 255)
+    return inv.astype(np.uint8)
 
 
 def _finalize(tiff_bytes, cleaned, a, out):

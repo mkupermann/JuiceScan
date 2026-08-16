@@ -57,6 +57,17 @@ def test_invert_negative_brightens_dark():
     assert out[0, 0, 0] > out[7, 7, 0]
 
 
+def test_invert_neutralizes_color_cast():
+    rng = np.random.default_rng(3)
+    base = rng.integers(60, 200, (40, 40), dtype=np.uint8).astype(np.int16)
+    arr = np.stack([np.clip(base - 40, 0, 255),
+                    base,
+                    np.clip(base + 20, 0, 255)], axis=-1).astype(np.uint8)
+    out = scan8600.invert_negative(arr)
+    means = out.reshape(-1, 3).mean(axis=0)
+    assert max(means) - min(means) < 12
+
+
 def test_negative_flag_parses():
     a = scan8600.parse_args(["--mode", "film", "--negative"])
     assert a.negative

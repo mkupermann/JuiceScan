@@ -105,6 +105,11 @@ inside GIMP yet, its option logic is covered by unit tests.
   look just like a separator bar, so when frames touch, set the frame
   count yourself with `--frames N` or the GUI field. That is the same
   reason SilverFast shows you a frame overview to correct.
+- Scanning B/W film? Set Color to Grayscale. A cold lamp shifts its
+  color during the first scans, which puts density-dependent casts into
+  color scans (pink sky, green shadows). Grayscale is immune, faster,
+  and what silver film deserves anyway. Color mode with gray-world
+  balancing is for color negatives and slides.
 - If transparency scans come out as colored vertical stripes, the
   narrow calibration slot at the top of the transparency window is
   obstructed, usually by the film holder or the white mat. High

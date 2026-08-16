@@ -121,8 +121,8 @@ def _run_pass(a, source, retries=1):
         err = r.stderr.decode(errors="replace")
         if "no SANE devices" in err:
             raise ScanError(
-                "Scanner nicht gefunden. USB-Kabel prüfen, dann: "
-                "ioreg -p IOUSB | grep -i CanoScan. Details:\n" + err)
+                "Scanner nicht gefunden. " + BUSY_HINT
+                + "\nDetails:\n" + err)
         if "Invalid argument" in err and retries > 0:
             # Transient direkt nach vorherigem Scan (Gerät noch busy/homing):
             # kurz warten, einmal neu versuchen.
@@ -133,12 +133,32 @@ def _run_pass(a, source, retries=1):
     return r.stdout
 
 
+BUSY_HINT = (
+    "Der Scanner wurde nicht gefunden oder ist belegt. Häufigste Ursache: "
+    "ein anderes Programm hält das Gerät (Digitale Bilder, "
+    "Systemeinstellungen 'Drucker & Scanner', VueScan). Diese Fenster "
+    "schließen und erneut versuchen. Danach USB-Kabel und Netzschalter "
+    "prüfen: ioreg -p IOUSB | grep -i CanoScan")
+
+
+def _probe_options(retries=3):
+    import time
+    for attempt in range(retries):
+        probe = scanimage_run([str(SCANIMAGE), "-A"])
+        opts = probe.stdout.decode(errors="replace")
+        if probe.returncode == 0 and "--source" in opts:
+            return opts
+        if attempt < retries - 1:
+            time.sleep(3)
+    raise ScanError(BUSY_HINT + "\nDetails:\n"
+                    + probe.stderr.decode(errors="replace"))
+
+
 def run_scan(a):
     out = pathlib.Path(a.output or default_output(a))
     source = ir_source = None
     if a.mode == "film":
-        probe = scanimage_run([str(SCANIMAGE), "-A"])
-        opts = probe.stdout.decode(errors="replace")
+        opts = _probe_options()
         source = find_film_source(opts)
         if source is None:
             raise ScanError(

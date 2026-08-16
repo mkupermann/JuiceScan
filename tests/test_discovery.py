@@ -15,6 +15,14 @@ def test_find_film_source_missing():
     assert scan8600.find_film_source("--source Flatbed [Flatbed]") is None
 
 
+def test_run_scan_missing_driver_hint(monkeypatch, tmp_path):
+    monkeypatch.setattr(scan8600, "SCANIMAGE",
+                        tmp_path / "nope" / "scanimage")
+    a = scan8600.parse_args(["--mode", "flatbed"])
+    with pytest.raises(scan8600.ScanError, match="install.sh"):
+        scan8600.run_scan(a)
+
+
 def test_run_scan_device_not_found(monkeypatch, tmp_path):
     def fake_run(cmd, **kw):
         class R:

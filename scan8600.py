@@ -166,6 +166,11 @@ def _probe_options(retries=3):
 
 
 def run_scan(a):
+    if not SCANIMAGE.exists():
+        raise ScanError(
+            f"Treiber nicht gefunden unter {SCANIMAGE}. Aus der DMG erst "
+            "install.sh ausführen (installiert nach /usr/local/canoscan8600f) "
+            "oder SCAN8600_PREFIX auf den Treiber-Ordner setzen.")
     out = pathlib.Path(a.output or default_output(a))
     source = ir_source = None
     if a.mode == "film":

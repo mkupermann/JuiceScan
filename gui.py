@@ -23,6 +23,36 @@ RESOLUTIONS = {"flatbed": [300, 600, 1200],
 DEFAULT_RES = {"flatbed": "300", "film": "2400"}
 
 
+PREVIEW_DPI = 300
+# Grenzen des Durchlichtfensters in mm (aus scanimage -A des 8600F).
+FILM_MAX_X, FILM_MAX_Y = 70.0, 230.0
+
+
+class CropScanWorker(QThread):
+    progress = Signal(str)
+    done = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, jobs):
+        super().__init__()
+        self.jobs = jobs
+
+    def run(self):
+        outs = []
+        for i, a in enumerate(self.jobs, 1):
+            self.progress.emit(
+                f"Scanning frame {i}/{len(self.jobs)} at {a.dpi} dpi…")
+            try:
+                outs += [str(p) for p in scan8600.run_scan(a)]
+            except scan8600.ScanError as e:
+                self.failed.emit(str(e))
+                return
+            except Exception as e:
+                self.failed.emit(f"{type(e).__name__}: {e}")
+                return
+        self.done.emit(outs)
+
+
 class ScanWorker(QThread):
     done = Signal(list)
     failed = Signal(str)
@@ -218,13 +248,15 @@ class MainWindow(QWidget):
         a = self.build_args()
         self._wanted = a
         if a.mode == "film" and not a.depth16:
-            # Filmscan liefert erst den Rohstreifen. Zuschnitt und
-            # Umkehrung passieren nach der Rahmenwahl im Editor.
+            # Zweistufig wie SilverFast: schneller Vorschau-Scan bei
+            # 300 dpi, Rahmen setzen, dann scannt nur noch der
+            # Rahmenbereich in der gewählten Auflösung.
             import tempfile
             raw = tempfile.NamedTemporaryFile(suffix=".tiff", delete=False)
             a = argparse.Namespace(**vars(a))
-            a.autocrop = a.split = a.negative = False
+            a.autocrop = a.split = a.negative = a.descratch = False
             a.format = "tiff"
+            a.dpi = PREVIEW_DPI
             a.output = raw.name
             self._raw_path = raw.name
         else:
@@ -265,36 +297,57 @@ class MainWindow(QWidget):
         self.status.setText(text)
 
     def save_frames(self):
-        import numpy as np
-        from PIL import Image
         rects = self.preview.frames()
         if not rects or not self._raw_path:
             self.status.setText("No frames marked.")
             return
-        arr = np.array(Image.open(self._raw_path).convert("RGB"))
         a = self._wanted
         ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        outs = []
-        h, w = arr.shape[:2]
+        mm = 25.4 / PREVIEW_DPI
+        jobs = []
         for i, (x, y, rw, rh) in enumerate(rects, 1):
-            x0, y0 = max(0, x), max(0, y)
-            x1, y1 = min(w, x + rw), min(h, y + rh)
-            if x1 <= x0 or y1 <= y0:
+            left = min(max(0.0, x * mm), FILM_MAX_X)
+            top = min(max(0.0, y * mm), FILM_MAX_Y)
+            width = min(rw * mm, FILM_MAX_X - left)
+            height = min(rh * mm, FILM_MAX_Y - top)
+            if width <= 1 or height <= 1:
                 continue
-            crop = arr[y0:y1, x0:x1]
-            if a.negative:
-                crop = scan8600.invert_negative(crop)
-            p = pathlib.Path(self.ed_dir.text()) / f"scan_{stamp}_{i}.{ext}"
-            img = Image.fromarray(crop)
-            if a.format == "jpeg":
-                img.save(p, quality=95)
-            else:
-                img.save(p)
-            outs.append(str(p))
-        self.status.setText(f"{len(outs)} image"
-                            + ("s" if len(outs) != 1 else "")
-                            + " saved:\n" + "\n".join(outs))
+            job = argparse.Namespace(**vars(a))
+            job.autocrop = job.split = False
+            job.frames = 0
+            job.sane_opt = [f"l={left:.2f}", f"t={top:.2f}",
+                            f"x={width:.2f}", f"y={height:.2f}"]
+            job.output = str(pathlib.Path(self.ed_dir.text())
+                             / f"scan_{stamp}_{i}.{ext}")
+            jobs.append(job)
+        if not jobs:
+            self.status.setText("No usable frames.")
+            return
+        self.btn_save.setEnabled(False)
+        self.btn_scan.setEnabled(False)
+        self.progress.setRange(0, 0)
+        self.crop_worker = CropScanWorker(jobs)
+        self.crop_worker.progress.connect(self.status.setText)
+        self.crop_worker.done.connect(self.crops_done)
+        self.crop_worker.failed.connect(self.scan_failed)
+        self.crop_worker.start()
+
+    def crops_done(self, outs):
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+        self.btn_scan.setEnabled(True)
+        self.btn_save.setEnabled(True)
+        text = (f"{len(outs)} image" + ("s" if len(outs) != 1 else "")
+                + " saved:\n" + "\n".join(outs))
+        if scan8600.LAST_WARNINGS:
+            text += "\n\n" + "\n".join(scan8600.LAST_WARNINGS)
+        self.status.setText(text)
+        self.editor_hint.hide()
+        if outs:
+            self.preview.clear_frames()
+            self.preview.set_image(QPixmap(
+                self._contact_sheet(outs) if len(outs) > 1 else outs[0]))
 
     @staticmethod
     def _contact_sheet(paths):

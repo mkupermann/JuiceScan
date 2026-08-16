@@ -8,7 +8,7 @@ PREFIX="$ROOT/prefix"
 TAG="1.3.1"
 
 pacman -S --needed --noconfirm base-devel git autoconf automake libtool \
-  autoconf-archive \
+  autoconf-archive gettext gettext-devel \
   mingw-w64-x86_64-toolchain mingw-w64-x86_64-libusb \
   mingw-w64-x86_64-libtiff mingw-w64-x86_64-libjpeg-turbo \
   mingw-w64-x86_64-libpng mingw-w64-x86_64-pkgconf
@@ -17,7 +17,7 @@ pacman -S --needed --noconfirm base-devel git autoconf automake libtool \
   https://gitlab.com/sane-project/backends.git "$SRC"
 
 cd "$SRC"
-./autogen.sh
+autoreconf -f -i
 ./configure --prefix="$PREFIX" BACKENDS=genesys
 make -j"$(nproc)"
 make install

@@ -21,9 +21,9 @@ cd "$SRC"
 # MinGW-Kompatibilität: u_int32_t und syslog existieren unter Windows nicht.
 # Beide Dateien sind Netz-/Logging-Kompatschichten ohne Bedeutung für
 # lokales USB-Scannen.
-grep -q 'typedef uint32_t u_int32_t' sanei/inet_pton.c || \
-  sed -i '1i #include <stdint.h>\ntypedef uint32_t u_int32_t;' sanei/inet_pton.c
-cat > sanei/vsyslog.c <<'EOF'
+grep -q 'typedef uint32_t u_int32_t' lib/inet_pton.c || \
+  sed -i '1i #include <stdint.h>\ntypedef uint32_t u_int32_t;' lib/inet_pton.c
+cat > lib/vsyslog.c <<'EOF'
 /* MinGW: kein syslog vorhanden, Logging wird verworfen. */
 #include <stdarg.h>
 void vsyslog(int priority, const char *format, va_list args)

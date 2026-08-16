@@ -12,8 +12,8 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
-                               QProgressBar, QPushButton, QRadioButton, QSlider,
-                               QSpinBox, QInputDialog,
+                               QProgressBar, QPushButton, QRadioButton, QScrollArea,
+                               QSlider, QSpinBox, QInputDialog,
                                QVBoxLayout, QWidget)
 
 import autocrop
@@ -93,8 +93,16 @@ class MainWindow(QWidget):
         self.crop_worker = None
         root = QHBoxLayout(self)
 
-        # Linke Spalte: Einstellungen
-        left = QVBoxLayout()
+        # Linke Spalte: Einstellungen in ScrollArea
+        left_widget = QWidget()
+        left = QVBoxLayout(left_widget)
+        
+        # Enable scrolling for left panel
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setWidget(left_widget)
+        left_scroll.setMinimumWidth(280)
+        root.addWidget(left_scroll, 0)
         
         # ===== DEVICE SELECTION =====
         device_box = QGroupBox("Scanner Device")
@@ -387,7 +395,6 @@ class MainWindow(QWidget):
         left.addWidget(mirror_box)
         
         left.addStretch()
-        root.addLayout(left, 0)
 
         # Rechte Spalte: Vorschau
         right = QVBoxLayout()

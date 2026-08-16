@@ -28,31 +28,6 @@ PREVIEW_DPI = 300
 FILM_MAX_X, FILM_MAX_Y = 70.0, 230.0
 
 
-class CropScanWorker(QThread):
-    progress = Signal(str)
-    done = Signal(list)
-    failed = Signal(str)
-
-    def __init__(self, jobs):
-        super().__init__()
-        self.jobs = jobs
-
-    def run(self):
-        outs = []
-        for i, a in enumerate(self.jobs, 1):
-            self.progress.emit(
-                f"Scanning frame {i}/{len(self.jobs)} at {a.dpi} dpi…")
-            try:
-                outs += [str(p) for p in scan8600.run_scan(a)]
-            except scan8600.ScanError as e:
-                self.failed.emit(str(e))
-                return
-            except Exception as e:
-                self.failed.emit(f"{type(e).__name__}: {e}")
-                return
-        self.done.emit(outs)
-
-
 class ScanWorker(QThread):
     done = Signal(list)
     failed = Signal(str)
@@ -297,41 +272,77 @@ class MainWindow(QWidget):
         self.status.setText(text)
 
     def save_frames(self):
+        # Ein einziger Scan über die Gesamtfläche aller Rahmen. Jede neue
+        # Fenstergeometrie kostet einen vollen Kalibrierzyklus (Motor
+        # fährt mehrfach dunkel hin und her), deshalb nicht pro Rahmen
+        # scannen, sondern einmal scannen und in Software zuschneiden.
         rects = self.preview.frames()
         if not rects or not self._raw_path:
             self.status.setText("No frames marked.")
             return
         a = self._wanted
-        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
-        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         mm = 25.4 / PREVIEW_DPI
-        jobs = []
-        for i, (x, y, rw, rh) in enumerate(rects, 1):
-            left = min(max(0.0, x * mm), FILM_MAX_X)
-            top = min(max(0.0, y * mm), FILM_MAX_Y)
-            width = min(rw * mm, FILM_MAX_X - left)
-            height = min(rh * mm, FILM_MAX_Y - top)
-            if width <= 1 or height <= 1:
-                continue
-            job = argparse.Namespace(**vars(a))
-            job.autocrop = job.split = False
-            job.frames = 0
-            job.sane_opt = [f"l={left:.2f}", f"t={top:.2f}",
-                            f"x={width:.2f}", f"y={height:.2f}"]
-            job.output = str(pathlib.Path(self.ed_dir.text())
-                             / f"scan_{stamp}_{i}.{ext}")
-            jobs.append(job)
-        if not jobs:
+        ux0 = max(0, min(r[0] for r in rects))
+        uy0 = max(0, min(r[1] for r in rects))
+        ux1 = max(r[0] + r[2] for r in rects)
+        uy1 = max(r[1] + r[3] for r in rects)
+        left = min(ux0 * mm, FILM_MAX_X)
+        top = min(uy0 * mm, FILM_MAX_Y)
+        width = min((ux1 - ux0) * mm, FILM_MAX_X - left)
+        height = min((uy1 - uy0) * mm, FILM_MAX_Y - top)
+        if width <= 1 or height <= 1:
             self.status.setText("No usable frames.")
             return
+        import tempfile
+        job = argparse.Namespace(**vars(a))
+        job.autocrop = job.split = job.negative = False
+        job.frames = 0
+        job.format = "tiff"
+        job.sane_opt = [f"l={left:.2f}", f"t={top:.2f}",
+                        f"x={width:.2f}", f"y={height:.2f}"]
+        job.output = tempfile.NamedTemporaryFile(suffix=".tiff",
+                                                 delete=False).name
+        self._union_px = (ux0, uy0)
+        self._crop_rects = rects
         self.btn_save.setEnabled(False)
         self.btn_scan.setEnabled(False)
         self.progress.setRange(0, 0)
-        self.crop_worker = CropScanWorker(jobs)
-        self.crop_worker.progress.connect(self.status.setText)
-        self.crop_worker.done.connect(self.crops_done)
+        self.status.setText(
+            f"Scanning selection at {a.dpi} dpi (one pass)…")
+        self.crop_worker = ScanWorker(job)
+        self.crop_worker.done.connect(self._crops_scan_done)
         self.crop_worker.failed.connect(self.scan_failed)
         self.crop_worker.start()
+
+    def _crops_scan_done(self, paths):
+        import numpy as np
+        from PIL import Image
+        a = self._wanted
+        arr = np.array(Image.open(paths[0]).convert("RGB"))
+        scale = a.dpi / PREVIEW_DPI
+        ux0, uy0 = self._union_px
+        ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        h, w = arr.shape[:2]
+        outs = []
+        for i, (x, y, rw, rh) in enumerate(self._crop_rects, 1):
+            x0 = max(0, int((x - ux0) * scale))
+            y0 = max(0, int((y - uy0) * scale))
+            x1 = min(w, int((x - ux0 + rw) * scale))
+            y1 = min(h, int((y - uy0 + rh) * scale))
+            if x1 <= x0 or y1 <= y0:
+                continue
+            crop = arr[y0:y1, x0:x1]
+            if a.negative:
+                crop = scan8600.invert_negative(crop)
+            p = pathlib.Path(self.ed_dir.text()) / f"scan_{stamp}_{i}.{ext}"
+            img = Image.fromarray(crop)
+            if a.format == "jpeg":
+                img.save(p, quality=95)
+            else:
+                img.save(p)
+            outs.append(str(p))
+        self.crops_done(outs)
 
     def crops_done(self, outs):
         self.progress.setRange(0, 1)

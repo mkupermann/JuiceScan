@@ -30,6 +30,11 @@ void vsyslog(int priority, const char *format, va_list args)
 { (void) priority; (void) format; (void) args; }
 EOF
 
+# MinGW: tv_sec ist long, localtime erwartet time_t*.
+grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
+  sed -i 's|t = localtime (&tv.tv_sec);|{ time_t _tsec = tv.tv_sec; t = localtime (\&_tsec); }|' \
+    sanei/sanei_init_debug.c
+
 autoreconf -f -i
 ./configure --prefix="$PREFIX" BACKENDS=genesys
 make -j"$(nproc)"

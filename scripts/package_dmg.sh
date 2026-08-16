@@ -10,6 +10,9 @@ VERSION="1.1"
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload"
+# Altes Dev-Prefix kann veraltete Ladepfade tragen und ueber libtool in
+# den Dist-Build einsickern. Weg damit, Schritt 5 baut es frisch.
+rm -rf "$ROOT/prefix"
 
 # 1) Treiber mit Dist-Prefix bauen und nach Staging installieren
 cd "$SRC"
@@ -22,7 +25,22 @@ make clean >/dev/null
 make -j"$(sysctl -n hw.ncpu)" >/dev/null
 make install DESTDIR="$STAGE/root" >/dev/null
 
-if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | grep -q "$ROOT"; then
+# Ladepfade hart normalisieren. libtools Relink ist unzuverlaessig,
+# install_name_tool macht sie deterministisch, danach neu signieren.
+install_name_tool -id "$DIST_PREFIX/lib/libsane.1.dylib" \
+  "$STAGE/root$DIST_PREFIX/lib/libsane.1.dylib"
+codesign --force --sign - "$STAGE/root$DIST_PREFIX/lib/libsane.1.dylib"
+for bin in "$STAGE/root$DIST_PREFIX"/bin/* "$STAGE/root$DIST_PREFIX"/sbin/*; do
+  [ -f "$bin" ] && file "$bin" | grep -q Mach-O || continue
+  otool -L "$bin" | awk 'NR>1 {print $1}' | grep 'libsane' | \
+    while read -r dep; do
+      install_name_tool -change "$dep" \
+        "$DIST_PREFIX/lib/libsane.1.dylib" "$bin"
+    done
+  codesign --force --sign - "$bin"
+done
+
+if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | grep -qE "$ROOT|GitHub/canoscan"; then
   echo "FEHLER: scanimage referenziert Dev-Pfade" >&2
   otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" >&2
   exit 1

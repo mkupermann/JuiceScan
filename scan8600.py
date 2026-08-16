@@ -41,6 +41,11 @@ def parse_args(argv):
     p.add_argument("--split", action="store_true",
                    help="jedes erkannte Foto als eigene Datei "
                         "(erfordert --autocrop)")
+    p.add_argument("--sane-opt", action="append", default=[],
+                   metavar="OPT=WERT",
+                   help="beliebige scanimage-Option ohne führende Striche "
+                        "durchreichen, z. B. --sane-opt brightness=10 "
+                        "(wiederholbar)")
     a = p.parse_args(argv)
     if a.dpi is None:
         a.dpi = DEFAULT_DPI[a.mode]
@@ -63,6 +68,11 @@ def build_command(a, source_name):
            "--mode", "Gray" if a.gray else "Color"]
     if source_name:
         cmd += ["--source", source_name]
+    for raw in getattr(a, "sane_opt", []) or []:
+        key, _, val = raw.partition("=")
+        key = key.lstrip("-")
+        key = ("-" if len(key) == 1 else "--") + key
+        cmd += [key, val] if val else [key]
     return cmd
 
 

@@ -8,7 +8,7 @@ erste Lauf braucht ggf. Nacharbeit.
 
 Canon liefert für den CanoScan 8600F keinen Windows-11-Treiber mehr. Statt
 des Canon-Treibers bindet Zadig den generischen **WinUSB**-Treiber an das
-Gerät; darüber spricht libusb den Scanner direkt an — mit demselben
+Gerät. Darüber spricht libusb den Scanner direkt an, mit demselben
 selbst kompilierten genesys-Backend wie auf dem Mac.
 
 ## Schritte
@@ -36,7 +36,7 @@ selbst kompilierten genesys-Backend wie auf dem Mac.
 ## Bekannte Punkte
 
 - `scan8600.py` findet unter Windows automatisch `prefix/bin/scanimage.exe`.
-- Erster Scan kalibriert (dauert länger); Kalibrierdaten liegen unter
+- Der erste Scan kalibriert und dauert länger. Kalibrierdaten liegen unter
   `%USERPROFILE%/.sane`.
 - Falls `scanimage -L` nichts findet: Zadig-Bindung prüfen (WinUSB, richtige
   USB-ID) und Scanner neu einstecken.

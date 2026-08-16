@@ -109,6 +109,11 @@ grep -q 'mkdir(ret.c_str())' backend/genesys/genesys.cpp || \
   sed -i 's|mkdir(ret.c_str(), 0700);|#ifdef __MINGW32__\n        mkdir(ret.c_str());\n#else\n        mkdir(ret.c_str(), 0700);\n#endif|' \
     backend/genesys/genesys.cpp
 
+# MinGW: localtime_r existiert nicht, Wrapper über localtime.
+grep -q 'mingw_localtime_r' frontend/jpegtopdf.c || \
+  sed -i 's|#include "jpegtopdf.h"|#include "jpegtopdf.h"\n#ifdef __MINGW32__\nstatic struct tm *mingw_localtime_r(const time_t *t, struct tm *r)\n{ struct tm *p = localtime(t); if (p) *r = *p; return p ? r : 0; }\n#define localtime_r mingw_localtime_r\n#endif|' \
+    frontend/jpegtopdf.c
+
 autoreconf -f -i
 
 # C++-verträglich: Parametername 'new' im sigprocmask-Fallback-Prototyp.

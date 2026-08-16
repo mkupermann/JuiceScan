@@ -35,36 +35,35 @@ def parse_args(argv):
     p.add_argument("--output")
     p.add_argument("--gray", action="store_true")
     p.add_argument("--descratch", action="store_true",
-                   help="IR-basierte Kratzerentfernung (nur --mode film)")
+                   help="infrared-based scratch removal (film mode only)")
     p.add_argument("--autocrop", action="store_true",
-                   help="auf erkannte Fotos/Dokumente zuschneiden")
+                   help="crop to detected photos/documents")
     p.add_argument("--split", action="store_true",
-                   help="jedes erkannte Foto als eigene Datei "
-                        "(erfordert --autocrop)")
+                   help="save each detected photo as its own file "
+                        "(requires --autocrop)")
     p.add_argument("--frames", type=int, default=0,
-                   help="Anzahl Bilder im Filmhalter, teilt den Streifen "
-                        "gleichmäßig (0 = automatisch über Basis-Lücken)")
+                   help="number of frames in the film holder, splits the "
+                        "strip evenly (0 = automatic via base gaps)")
     p.add_argument("--depth16", action="store_true",
-                   help="16 Bit pro Kanal, nur reines TIFF ohne "
-                        "Nachbearbeitung")
+                   help="16 bits per channel, plain TIFF without "
+                        "post-processing only")
     p.add_argument("--negative", action="store_true",
-                   help="Negativ umkehren (Invertierung plus "
-                        "Kanal-Streckung gegen die Orangemaske)")
+                   help="invert negative (inversion plus per-channel "
+                        "stretch against the orange mask)")
     p.add_argument("--sane-opt", action="append", default=[],
                    metavar="OPT=WERT",
-                   help="beliebige scanimage-Option ohne führende Striche "
-                        "durchreichen, z. B. --sane-opt brightness=10 "
-                        "(wiederholbar)")
+                   help="pass any scanimage option without leading dashes, "
+                        "e.g. --sane-opt brightness=10 (repeatable)")
     a = p.parse_args(argv)
     if a.dpi is None:
         a.dpi = DEFAULT_DPI[a.mode]
     if a.descratch and a.mode != "film":
-        p.error("--descratch erfordert --mode film")
+        p.error("--descratch requires --mode film")
     if a.split and not a.autocrop:
-        p.error("--split erfordert --autocrop")
+        p.error("--split requires --autocrop")
     if a.depth16 and (a.descratch or a.negative or a.autocrop
                       or a.format != "tiff"):
-        p.error("--depth16 geht nur mit reinem TIFF ohne Nachbearbeitung")
+        p.error("--depth16 only works with plain TIFF, no post-processing")
     return a
 
 
@@ -139,7 +138,7 @@ def _run_pass(a, source, retries=1):
         err = r.stderr.decode(errors="replace")
         if "no SANE devices" in err:
             raise ScanError(
-                "Scanner nicht gefunden. " + BUSY_HINT
+                "Scanner not found. " + BUSY_HINT
                 + "\nDetails:\n" + err)
         if "Invalid argument" in err and retries > 0:
             # Transient direkt nach vorherigem Scan (Gerät noch busy/homing):
@@ -152,11 +151,11 @@ def _run_pass(a, source, retries=1):
 
 
 BUSY_HINT = (
-    "Der Scanner wurde nicht gefunden oder ist belegt. Häufigste Ursache: "
-    "ein anderes Programm hält das Gerät (Digitale Bilder, "
-    "Systemeinstellungen 'Drucker & Scanner', VueScan). Diese Fenster "
-    "schließen und erneut versuchen. Danach USB-Kabel und Netzschalter "
-    "prüfen: ioreg -p IOUSB | grep -i CanoScan")
+    "Scanner not found or busy. Most common cause: another application "
+    "is holding the device (Image Capture, System Settings "
+    "'Printers & Scanners', VueScan). Close those windows and retry. "
+    "Then check USB cable and power switch: "
+    "ioreg -p IOUSB | grep -i CanoScan")
 
 
 def _probe_options(retries=3):
@@ -175,9 +174,9 @@ def _probe_options(retries=3):
 def run_scan(a):
     if not SCANIMAGE.exists():
         raise ScanError(
-            f"Treiber nicht gefunden unter {SCANIMAGE}. Aus der DMG erst "
-            "install.sh ausführen (installiert nach /usr/local/canoscan8600f) "
-            "oder SCAN8600_PREFIX auf den Treiber-Ordner setzen.")
+            f"Driver not found at {SCANIMAGE}. Install the pkg from the DMG "
+            "first (installs to /usr/local/canoscan8600f) or point "
+            "SCAN8600_PREFIX at the driver folder.")
     out = pathlib.Path(a.output or default_output(a))
     source = ir_source = None
     if a.mode == "film":
@@ -185,14 +184,14 @@ def run_scan(a):
         source = find_film_source(opts)
         if source is None:
             raise ScanError(
-                "Keine Durchlicht-Quelle gefunden. Verfügbare Optionen:\n"
+                "No transparency source found. Available options:\n"
                 + opts)
         if a.descratch:
             ir_source = find_ir_source(opts)
             if ir_source is None:
                 raise ScanError(
-                    "Keine Infrarot-Quelle für --descratch gefunden. "
-                    "Verfügbare Optionen:\n" + opts)
+                    "No infrared source found for --descratch. "
+                    "Available options:\n" + opts)
     tiff_bytes = _run_pass(a, source)
     cleaned = None
     if ir_source:

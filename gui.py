@@ -49,48 +49,48 @@ class MainWindow(QWidget):
 
         # Linke Spalte: Einstellungen
         left = QVBoxLayout()
-        mode_box = QGroupBox("Modus")
+        mode_box = QGroupBox("Mode")
         mb = QHBoxLayout(mode_box)
-        self.rb_flatbed = QRadioButton("Flachbett")
-        self.rb_film = QRadioButton("Durchlicht (Film/Dia)")
+        self.rb_flatbed = QRadioButton("Flatbed")
+        self.rb_film = QRadioButton("Transparency (film/slides)")
         self.rb_flatbed.setChecked(True)
         mb.addWidget(self.rb_flatbed)
         mb.addWidget(self.rb_film)
         left.addWidget(mode_box)
 
-        form_box = QGroupBox("Einstellungen")
+        form_box = QGroupBox("Settings")
         form = QFormLayout(form_box)
         self.cb_dpi = QComboBox()
         self.cb_color = QComboBox()
-        self.cb_color.addItems(["Farbe", "Graustufen"])
+        self.cb_color.addItems(["Color", "Grayscale"])
         self.cb_format = QComboBox()
         self.cb_format.addItems(["tiff", "png", "jpeg"])
-        form.addRow("Auflösung (dpi)", self.cb_dpi)
-        form.addRow("Farbe", self.cb_color)
+        form.addRow("Resolution (dpi)", self.cb_dpi)
+        form.addRow("Color", self.cb_color)
         form.addRow("Format", self.cb_format)
         left.addWidget(form_box)
 
-        opt_box = QGroupBox("Verarbeitung")
+        opt_box = QGroupBox("Processing")
         ob = QVBoxLayout(opt_box)
-        self.ck_descratch = QCheckBox("Kratzer entfernen (Infrarot)")
-        self.ck_negative = QCheckBox("Negativ umkehren")
-        self.ck_autocrop = QCheckBox("Größe automatisch erkennen")
-        self.ck_split = QCheckBox("Fotos einzeln speichern")
-        self.ck_depth16 = QCheckBox("16 Bit Archiv-TIFF (ohne Nachbearbeitung)")
+        self.ck_descratch = QCheckBox("Remove scratches (infrared)")
+        self.ck_negative = QCheckBox("Invert negative")
+        self.ck_autocrop = QCheckBox("Detect size automatically")
+        self.ck_split = QCheckBox("Save photos separately")
+        self.ck_depth16 = QCheckBox("16-bit archival TIFF (no post-processing)")
         ob.addWidget(self.ck_negative)
         ob.addWidget(self.ck_descratch)
         ob.addWidget(self.ck_autocrop)
         ob.addWidget(self.ck_split)
         ob.addWidget(self.ck_depth16)
         fr = QHBoxLayout()
-        fr.addWidget(QLabel("Anzahl Bilder im Halter (0 = automatisch)"))
+        fr.addWidget(QLabel("Frames in holder (0 = automatic)"))
         self.sp_frames = QSpinBox()
         self.sp_frames.setRange(0, 12)
         fr.addWidget(self.sp_frames)
         ob.addLayout(fr)
         left.addWidget(opt_box)
 
-        out_box = QGroupBox("Ziel")
+        out_box = QGroupBox("Destination")
         of = QHBoxLayout(out_box)
         self.ed_dir = QLineEdit(str(pathlib.Path.home() / "Pictures"))
         btn_dir = QPushButton("…")
@@ -99,7 +99,7 @@ class MainWindow(QWidget):
         of.addWidget(btn_dir)
         left.addWidget(out_box)
 
-        self.btn_scan = QPushButton("Scannen")
+        self.btn_scan = QPushButton("Scan")
         self.btn_scan.setObjectName("scanButton")
         self.btn_scan.setMinimumHeight(44)
         self.btn_scan.clicked.connect(self.start_scan)
@@ -107,7 +107,7 @@ class MainWindow(QWidget):
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         left.addWidget(self.progress)
-        self.status = QLabel("Bereit.")
+        self.status = QLabel("Ready.")
         self.status.setWordWrap(True)
         left.addWidget(self.status)
         left.addStretch()
@@ -119,12 +119,12 @@ class MainWindow(QWidget):
         self.preview.setMinimumSize(420, 520)
         right.addWidget(self.preview, 1)
         self.editor_hint = QLabel(
-            "Rahmen ziehen: mit der Maus aufziehen, verschieben, "
-            "Backspace löscht den markierten Rahmen.")
+            "Draw frames with the mouse, drag to move, "
+            "Backspace deletes the selected frame.")
         self.editor_hint.setWordWrap(True)
         self.editor_hint.hide()
         right.addWidget(self.editor_hint)
-        self.btn_save = QPushButton("Ausschnitte speichern")
+        self.btn_save = QPushButton("Save crops")
         self.btn_save.clicked.connect(self.save_frames)
         self.btn_save.setEnabled(False)
         right.addWidget(self.btn_save)
@@ -186,7 +186,7 @@ class MainWindow(QWidget):
 
     def pick_dir(self):
         d = QFileDialog.getExistingDirectory(
-            self, "Zielordner", self.ed_dir.text())
+            self, "Destination folder", self.ed_dir.text())
         if d:
             self.ed_dir.setText(d)
 
@@ -214,7 +214,7 @@ class MainWindow(QWidget):
         self.btn_scan.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.progress.setRange(0, 0)
-        self.status.setText("Scanne… (erster Lauf kalibriert, dauert länger)")
+        self.status.setText("Scanning… (first run calibrates and takes longer)")
         a = self.build_args()
         self._wanted = a
         if a.mode == "film" and not a.depth16:
@@ -241,8 +241,8 @@ class MainWindow(QWidget):
         if self._raw_path:
             self._show_editor(self._raw_path)
             return
-        self.status.setText(f"Fertig ({len(paths)} Bild"
-                            + ("er" if len(paths) != 1 else "") + "):\n"
+        self.status.setText(f"Done ({len(paths)} image"
+                            + ("s" if len(paths) != 1 else "") + "):\n"
                             + "\n".join(paths))
         self.editor_hint.hide()
         self.preview.set_image(QPixmap(
@@ -260,14 +260,14 @@ class MainWindow(QWidget):
         self.editor_hint.show()
         self.btn_save.setEnabled(True)
         self.status.setText(
-            "Rahmen prüfen oder selbst ziehen, dann Ausschnitte speichern.")
+            "Check the frames or draw your own, then save the crops.")
 
     def save_frames(self):
         import numpy as np
         from PIL import Image
         rects = self.preview.frames()
         if not rects or not self._raw_path:
-            self.status.setText("Keine Rahmen markiert.")
+            self.status.setText("No frames marked.")
             return
         arr = np.array(Image.open(self._raw_path).convert("RGB"))
         a = self._wanted
@@ -290,9 +290,9 @@ class MainWindow(QWidget):
             else:
                 img.save(p)
             outs.append(str(p))
-        self.status.setText(f"{len(outs)} Bild"
-                            + ("er" if len(outs) != 1 else "")
-                            + " gespeichert:\n" + "\n".join(outs))
+        self.status.setText(f"{len(outs)} image"
+                            + ("s" if len(outs) != 1 else "")
+                            + " saved:\n" + "\n".join(outs))
 
     @staticmethod
     def _contact_sheet(paths):
@@ -320,8 +320,8 @@ class MainWindow(QWidget):
     def scan_failed(self, msg):
         self.progress.setRange(0, 1)
         self.btn_scan.setEnabled(True)
-        self.status.setText("Fehler.")
-        QMessageBox.critical(self, "Scan fehlgeschlagen", msg)
+        self.status.setText("Error.")
+        QMessageBox.critical(self, "Scan failed", msg)
 
 
 STYLE = """

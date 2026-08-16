@@ -83,8 +83,8 @@ class Scan8600(Gimp.PlugIn):
     def _build_dialog(self, options):
         GimpUi.init(PROC_NAME)
         dlg = Gtk.Dialog(title="CanoScan 8600F")
-        dlg.add_button("Abbrechen", Gtk.ResponseType.CANCEL)
-        dlg.add_button("Scannen", Gtk.ResponseType.OK)
+        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dlg.add_button("Scan", Gtk.ResponseType.OK)
         nb = Gtk.Notebook()
         dlg.get_content_area().pack_start(nb, True, True, 8)
         widgets = {}
@@ -128,21 +128,21 @@ class Scan8600(Gimp.PlugIn):
             if opt.name in STANDARD:
                 w = widget_for(opt)
                 widgets[opt.name] = (opt, w)
-                title = {"--source": "Quelle", "--resolution":
-                         "Auflösung (dpi)", "--mode": "Farbe"}[opt.name]
+                title = {"--source": "Source", "--resolution":
+                         "Resolution (dpi)", "--mode": "Color"}[opt.name]
                 add_row(std, row, title, w)
                 row += 1
-        ck_descratch = Gtk.CheckButton(label="Kratzer entfernen (Infrarot)")
-        ck_negative = Gtk.CheckButton(label="Negativ umkehren")
-        ck_autocrop = Gtk.CheckButton(label="Größe automatisch erkennen")
-        ck_split = Gtk.CheckButton(label="Fotos einzeln speichern")
+        ck_descratch = Gtk.CheckButton(label="Remove scratches (infrared)")
+        ck_negative = Gtk.CheckButton(label="Invert negative")
+        ck_autocrop = Gtk.CheckButton(label="Detect size automatically")
+        ck_split = Gtk.CheckButton(label="Save photos separately")
         for w in (ck_descratch, ck_negative, ck_autocrop, ck_split):
             std.attach(w, 0, row, 2, 1)
             row += 1
         sp_frames = Gtk.SpinButton(
             adjustment=Gtk.Adjustment(lower=0, upper=12, step_increment=1),
             digits=0)
-        add_row(std, row, "Anzahl Bilder im Halter (0 = auto)", sp_frames)
+        add_row(std, row, "Frames in holder (0 = auto)", sp_frames)
         row += 1
         nb.append_page(std, Gtk.Label(label="Standard"))
 
@@ -158,7 +158,7 @@ class Scan8600(Gimp.PlugIn):
         sc = Gtk.ScrolledWindow()
         sc.set_min_content_height(360)
         sc.add(adv)
-        nb.append_page(sc, Gtk.Label(label="Erweitert"))
+        nb.append_page(sc, Gtk.Label(label="Advanced"))
 
         dlg.show_all()
         return (dlg, widgets, ck_descratch, ck_negative, ck_autocrop,
@@ -177,15 +177,15 @@ class Scan8600(Gimp.PlugIn):
         scanimage = _bin("scanimage")
         cli = _bin("scan8600")
         if not scanimage.exists() or not cli.exists():
-            self._error("Treiber-Stack nicht gefunden unter "
-                        f"{_prefix()}. Erst install.sh aus der DMG "
-                        "ausführen oder SCAN8600_PREFIX setzen.")
+            self._error("Driver stack not found at "
+                        f"{_prefix()}. Install the pkg from the DMG "
+                        "first or set SCAN8600_PREFIX.")
             return procedure.new_return_values(
                 Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
 
         probe = _run([str(scanimage), "-L"])
         if b"genesys" not in probe.stdout:
-            self._error("Kein CanoScan 8600F gefunden. USB prüfen.")
+            self._error("No CanoScan 8600F found. Check USB.")
             return procedure.new_return_values(
                 Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
 
@@ -232,7 +232,7 @@ class Scan8600(Gimp.PlugIn):
 
         r = _run(cmd)
         if r.returncode != 0:
-            self._error("Scan fehlgeschlagen:\n"
+            self._error("Scan failed:\n"
                         + r.stderr.decode(errors="replace"))
             return procedure.new_return_values(
                 Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())

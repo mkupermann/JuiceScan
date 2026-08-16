@@ -78,7 +78,9 @@ def build_command(a, source_name):
     # aus. Die Quelle muss VOR der Auflösung stehen, sonst wird die
     # Auflösung gegen die Liste der Standardquelle geprüft und still
     # abgerundet (Flachbett kann nur bis 1200, Durchlicht bis 4800).
-    cmd = [str(SCANIMAGE), "--format=tiff"]
+    # 4-MB-Puffer statt 32 KB Standard: weniger USB-Transaktionen,
+    # messbar ruhigerer Durchsatz bei Hochauflösungs-Scans.
+    cmd = [str(SCANIMAGE), "--format=tiff", "--buffer-size=4096"]
     if source_name:
         cmd += ["--source", source_name]
     cmd += ["--resolution", str(a.dpi),

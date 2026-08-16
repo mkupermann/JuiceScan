@@ -1,5 +1,4 @@
 # JuiceScan
-<img width="3414" height="2124" alt="image" src="https://github.com/user-attachments/assets/e5bd98c9-570e-454e-97c1-0fa34eeb0e5f" />
 
 Canon stopped shipping drivers for the CanoScan 8600F years ago. No
 current macOS support, no Windows 11 support. The scanner itself is

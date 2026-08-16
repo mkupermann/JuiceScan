@@ -24,7 +24,7 @@ PREFIX = _default_prefix()
 _EXE = "scanimage.exe" if sys.platform == "win32" else "scanimage"
 SCANIMAGE = PREFIX / "bin" / _EXE
 SANE_ENV = {"SANE_CONFIG_DIR": str(PREFIX / "etc" / "sane.d")}
-DEFAULT_DPI = {"flatbed": 300, "film": 300}
+DEFAULT_DPI = {"flatbed": 300, "film": 2400}
 
 
 def parse_args(argv):
@@ -61,11 +61,6 @@ def parse_args(argv):
         p.error("--descratch requires --mode film")
     if a.split and not a.autocrop:
         p.error("--split requires --autocrop")
-    if a.mode == "film" and a.dpi > 300:
-        print("scan8600: warning: transparency scans above 300 dpi "
-              "produce corrupt sensor data on the 8600F (genesys "
-              "backend limitation). Proceeding anyway.",
-              file=sys.stderr)
     if a.depth16 and (a.descratch or a.negative or a.autocrop
                       or a.format != "tiff"):
         p.error("--depth16 only works with plain TIFF, no post-processing")

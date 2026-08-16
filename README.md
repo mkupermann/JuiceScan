@@ -1,4 +1,4 @@
-# canoscan
+# JuiceScan
 <img width="3414" height="2124" alt="image" src="https://github.com/user-attachments/assets/e5bd98c9-570e-454e-97c1-0fa34eeb0e5f" />
 
 Canon stopped shipping drivers for the CanoScan 8600F years ago. No
@@ -14,7 +14,7 @@ Windows 11.
 ## What it does
 
 - Flatbed at 300 to 1200 dpi, transparency (film and slides) at
-  300 dpi, see the honest limits below
+  300 to 4800 dpi
 - Two-stage film workflow: fast 300 dpi preview, draw or adjust frames
   in the built-in editor, then the scanner only scans those frame
   areas at full resolution
@@ -71,8 +71,7 @@ CLI:
 
 The options that matter:
 
-    --dpi N                  resolution, default 300 (film maximum that
-                             yields real data, see limits)
+    --dpi N                  resolution, default 300 flatbed, 2400 film
     --gray                   grayscale instead of color
     --format tiff|png|jpeg   output format, default tiff
     --output PATH            target file
@@ -105,13 +104,12 @@ inside GIMP yet, its option logic is covered by unit tests.
   look just like a separator bar, so when frames touch, set the frame
   count yourself with `--frames N` or the GUI field. That is the same
   reason SilverFast shows you a frame overview to correct.
-- Transparency works at 300 dpi only. Above that the genesys backend
-  returns corrupt sensor data on the 8600F, verified on hardware at
-  600, 1200, 2400 and 4800 dpi in both the release and the current
-  development version. A register-level driver fix would need USB
-  captures against the old Canon Windows driver, that is an open
-  project. The GUI therefore offers 300 dpi for film, the CLI warns
-  above it.
+- If transparency scans come out as colored vertical stripes, the
+  narrow calibration slot at the top of the transparency window is
+  obstructed, usually by the film holder or the white mat. High
+  resolutions calibrate through a finer window and fail first, 300 dpi
+  survives longer, which makes it look like a driver bug. Clear the
+  slot and power-cycle the scanner. We lost an evening to this one.
 - Infrared dust removal cannot work on silver-based B/W film or
   Kodachrome. Silver blocks infrared. That is physics, not a bug. The
   app detects this case by comparing the infrared image with the

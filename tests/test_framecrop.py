@@ -49,6 +49,6 @@ def test_expected_frames_splits_evenly():
     assert abs(heights[0] - heights[1]) <= 2
 
 
-def test_film_default_dpi_is_300():
+def test_film_default_dpi_is_2400():
     a = scan8600.parse_args(["--mode", "film"])
-    assert a.dpi == 300
+    assert a.dpi == 2400

@@ -28,14 +28,14 @@ jobs:
           py -3.13 -m venv .venv
           .venv\Scripts\pip install pillow numpy opencv-python PySide6 pyinstaller
           .venv\Scripts\pyinstaller --onefile --name scan8600 scan8600.py
-          .venv\Scripts\pyinstaller --onefile --windowed --name "CanoScan8600F" gui.py
+          .venv\Scripts\pyinstaller --onefile --windowed --name "JuiceScan" gui.py
 
       - name: Assemble package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path package | Out-Null
           Copy-Item dist\scan8600.exe package\
-          Copy-Item dist\CanoScan8600F.exe package\
+          Copy-Item dist\JuiceScan.exe package\
           Copy-Item -Recurse prefix package\prefix
           Copy-Item docs\WINDOWS.md package\
           New-Item -ItemType Directory -Path package\gimp-plugin | Out-Null
@@ -43,5 +43,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CanoScan8600F-windows
+          name: JuiceScan-windows
           path: package/

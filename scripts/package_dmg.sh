@@ -24,7 +24,7 @@ cd "$ROOT"
 "$ROOT/.venv/bin/pyinstaller" --onefile --name scan8600 \
   --distpath "$STAGE/pybin" --workpath "$STAGE/pywork" \
   --specpath "$STAGE" "$ROOT/scan8600.py" >/dev/null 2>&1
-"$ROOT/.venv/bin/pyinstaller" --windowed --name "CanoScan 8600F" \
+"$ROOT/.venv/bin/pyinstaller" --windowed --name "JuiceScan" \
   --distpath "$STAGE/pyapp" --workpath "$STAGE/pywork-gui" \
   --specpath "$STAGE" "$ROOT/gui.py" >/dev/null 2>&1
 
@@ -36,7 +36,7 @@ cp "$STAGE/pybin/scan8600" "$PKGROOT$DIST_PREFIX/bin/scan8600"
 mkdir -p "$PKGROOT$DIST_PREFIX/gimp-plugin"
 cp "$ROOT/gimp/scan8600_gimp.py" "$ROOT/scanoptions.py" \
    "$ROOT/gimp/INSTALL.md" "$PKGROOT$DIST_PREFIX/gimp-plugin/"
-cp -R "$STAGE/pyapp/CanoScan 8600F.app" "$PKGROOT/Applications/"
+cp -R "$STAGE/pyapp/JuiceScan.app" "$PKGROOT/Applications/"
 
 mkdir -p "$STAGE/pkgscripts"
 cat > "$STAGE/pkgscripts/postinstall" <<'EOF'
@@ -55,19 +55,19 @@ pkgbuild --analyze --root "$PKGROOT" "$STAGE/components.plist" >/dev/null
   "$STAGE/components.plist"
 pkgbuild --root "$PKGROOT" \
   --component-plist "$STAGE/components.plist" \
-  --identifier com.kupermann.canoscan8600f \
+  --identifier com.kupermann.juicescan \
   --version "$VERSION" \
   --scripts "$STAGE/pkgscripts" \
   --install-location / \
-  "$STAGE/payload/CanoScan8600F.pkg" >/dev/null
+  "$STAGE/payload/JuiceScan.pkg" >/dev/null
 
 (cd "$STAGE/pkgroot$DIST_PREFIX" && zip -qr \
   "$ROOT/build/scan8600-gimp-plugin.zip" gimp-plugin)
 
 mkdir -p "$ROOT/build"
-hdiutil create -volname "CanoScan 8600F" -srcfolder "$STAGE/payload" \
-  -ov -format UDZO "$ROOT/build/CanoScan8600F.dmg" >/dev/null
-echo "DMG: $ROOT/build/CanoScan8600F.dmg (enthält CanoScan8600F.pkg)"
+hdiutil create -volname "JuiceScan" -srcfolder "$STAGE/payload" \
+  -ov -format UDZO "$ROOT/build/JuiceScan.dmg" >/dev/null
+echo "DMG: $ROOT/build/JuiceScan.dmg (enthält JuiceScan.pkg)"
 
 # 5) Dev-Build im Repo wiederherstellen
 cd "$SRC"

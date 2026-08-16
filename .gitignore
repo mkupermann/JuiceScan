@@ -1,0 +1,8 @@
+vendor/
+prefix/
+__pycache__/
+.venv/
+*.tiff
+*.png
+*.jpg
+build/

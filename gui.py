@@ -205,7 +205,7 @@ class MainWindow(QWidget):
             dpi=int(self.cb_dpi.currentText()),
             format=fmt,
             output=str(out),
-            gray=self.cb_color.currentText() == "Graustufen",
+            gray=self.cb_color.currentText() == "Grayscale",
             descratch=self.ck_descratch.isChecked(),
             negative=self.ck_negative.isChecked(),
             autocrop=self.ck_autocrop.isChecked(),

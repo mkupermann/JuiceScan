@@ -43,3 +43,11 @@ def test_split_requires_autocrop(app):
     assert not w.ck_split.isEnabled()
     w.ck_autocrop.setChecked(True)
     assert w.ck_split.isEnabled()
+
+
+def test_grayscale_selection_sets_gray(app):
+    w = gui.MainWindow()
+    w.cb_color.setCurrentText("Grayscale")
+    assert w.build_args().gray
+    w.cb_color.setCurrentText("Color")
+    assert not w.build_args().gray

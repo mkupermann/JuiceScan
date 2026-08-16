@@ -1,0 +1,45 @@
+name: windows-exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+
+      - name: Build sane-backends (genesys)
+        run: ./build_sane_win.sh
+
+      - name: Build EXEs with PyInstaller
+        shell: pwsh
+        run: |
+          py -3.13 -m venv .venv
+          .venv\Scripts\pip install pillow numpy opencv-python PySide6 pyinstaller
+          .venv\Scripts\pyinstaller --onefile --name scan8600 scan8600.py
+          .venv\Scripts\pyinstaller --onefile --windowed --name "CanoScan8600F" gui.py
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package | Out-Null
+          Copy-Item dist\scan8600.exe package\
+          Copy-Item dist\CanoScan8600F.exe package\
+          Copy-Item -Recurse prefix package\prefix
+          Copy-Item docs\WINDOWS.md package\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CanoScan8600F-windows
+          path: package/

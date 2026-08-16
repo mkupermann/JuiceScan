@@ -37,6 +37,23 @@ Tonpapier hinter dem Dokument) verbessert das Ergebnis deutlich.
 Der erste Scan kalibriert den Scanner (dauert länger); Kalibrierdaten
 liegen unter `~/.sane`.
 
+## GUI
+
+    .venv/bin/pip install PySide6
+    .venv/bin/python gui.py
+
+Alle Einstellungen (Modus, Auflösung, Farbe, Format, Kratzerentfernung,
+Größenerkennung, Zielordner) plus Vorschau des fertigen Scans.
+
+## Distribution
+
+- macOS-DMG: `./scripts/package_dmg.sh` → `build/CanoScan8600F.dmg`
+  (App-Bundle + CLI + Treiber, Installation per beiliegendem `install.sh`
+  nach `/usr/local/canoscan8600f` und `/Applications`).
+- Windows-EXE: GitHub-Actions-Workflow `.github/workflows/windows-exe.yml`
+  (manuell oder per Tag auslösbar) baut `CanoScan8600F.exe` + `scan8600.exe`
+  + Treiber auf einem Windows-Runner. Auf echter Windows-Hardware ungetestet.
+
 ## Tests
 
     .venv/bin/python -m pytest tests/ -q

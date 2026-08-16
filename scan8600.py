@@ -7,7 +7,20 @@ import re
 import subprocess
 import sys
 
-PREFIX = pathlib.Path(__file__).resolve().parent / "prefix"
+def _default_prefix():
+    import os
+    if os.environ.get("SCAN8600_PREFIX"):
+        return pathlib.Path(os.environ["SCAN8600_PREFIX"])
+    if getattr(sys, "frozen", False):
+        if sys.platform == "win32":
+            return pathlib.Path(sys.executable).resolve().parent / "prefix"
+        # DMG-Install: fester Pfad, identisch mit dem configure-prefix
+        # des Dist-Builds (scripts/package_dmg.sh).
+        return pathlib.Path("/usr/local/canoscan8600f")
+    return pathlib.Path(__file__).resolve().parent / "prefix"
+
+
+PREFIX = _default_prefix()
 _EXE = "scanimage.exe" if sys.platform == "win32" else "scanimage"
 SCANIMAGE = PREFIX / "bin" / _EXE
 SANE_ENV = {"SANE_CONFIG_DIR": str(PREFIX / "etc" / "sane.d")}

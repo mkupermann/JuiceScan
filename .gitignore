@@ -6,3 +6,6 @@ __pycache__/
 *.png
 *.jpg
 build/
+prefix-master/
+.DS_Store
+*.log

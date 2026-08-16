@@ -32,8 +32,9 @@ Windows 11.
 
 ## Install on macOS
 
-Prebuilt: grab `CanoScan8600F.dmg` from the latest release, mount it,
-double-click `CanoScan8600F.pkg`. That installs the driver to
+Prebuilt: grab `JuiceScan.dmg` from the latest release, mount it,
+double-click `JuiceScan.pkg`. Self-contained, no Homebrew needed.
+It installs the driver to
 `/usr/local/canoscan8600f`, the app to `/Applications` and the
 `scan8600` CLI symlink.
 
@@ -45,9 +46,9 @@ From source:
 
 ## Install on Windows 11
 
-Grab `CanoScan8600F-windows.zip` from the latest release, unpack it,
+Grab `JuiceScan-windows.zip` from the latest release, unpack it,
 follow the Zadig driver binding steps in `docs/WINDOWS.md`, then run
-`CanoScan8600F.exe`. Tested on real Windows 11 hardware. The CI
+`JuiceScan.exe`. Tested on real Windows 11 hardware. The CI
 workflow `windows-exe.yml` rebuilds the whole package on a Windows
 runner, including the MinGW-patched driver build.
 

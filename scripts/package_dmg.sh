@@ -40,11 +40,49 @@ for bin in "$STAGE/root$DIST_PREFIX"/bin/* "$STAGE/root$DIST_PREFIX"/sbin/*; do
   codesign --force --sign - "$bin"
 done
 
-if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | tail -n +2 | grep -qE "$ROOT|GitHub/canoscan"; then
-  echo "FEHLER: scanimage referenziert Dev-Pfade" >&2
-  otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" >&2
-  exit 1
-fi
+# Homebrew-Bibliotheken mit einpacken, damit das Paket auf jedem Mac
+# laeuft. Schleife, bis auch die Abhaengigkeiten der kopierten
+# Bibliotheken umgeschrieben sind.
+LIBDIR="$STAGE/root$DIST_PREFIX/lib"
+all_objs() {
+  for o in "$STAGE/root$DIST_PREFIX"/bin/* \
+           "$STAGE/root$DIST_PREFIX"/sbin/* \
+           "$LIBDIR"/*.dylib "$LIBDIR"/sane/*.so; do
+    [ -f "$o" ] && file "$o" | grep -q Mach-O && echo "$o" || true
+  done
+}
+changed=1
+while [ "$changed" = "1" ]; do
+  changed=0
+  for obj in $(all_objs); do
+    deps=$(otool -L "$obj" | tail -n +2 | awk '{print $1}' \
+           | grep '^/opt/homebrew' || true)
+    for dep in $deps; do
+      base=$(basename "$dep")
+      if [ ! -f "$LIBDIR/$base" ]; then
+        cp "$dep" "$LIBDIR/$base"
+        chmod u+w "$LIBDIR/$base"
+        install_name_tool -id "$DIST_PREFIX/lib/$base" "$LIBDIR/$base"
+        changed=1
+      fi
+      install_name_tool -change "$dep" "$DIST_PREFIX/lib/$base" "$obj"
+    done
+  done
+done
+for obj in $(all_objs); do
+  codesign --force --sign - "$obj" 2>/dev/null
+done
+
+for probe in "$STAGE/root$DIST_PREFIX/bin/scanimage" \
+             "$LIBDIR/libsane.1.dylib" \
+             "$LIBDIR"/sane/libsane-genesys.1.so; do
+  if otool -L "$probe" | tail -n +2 \
+       | grep -qE "$ROOT|GitHub/canoscan|/opt/homebrew"; then
+    echo "FEHLER: $probe referenziert fremde Pfade" >&2
+    otool -L "$probe" >&2
+    exit 1
+  fi
+done
 
 # 2) CLI und GUI mit PyInstaller
 "$ROOT/.venv/bin/pip" -q install pyinstaller

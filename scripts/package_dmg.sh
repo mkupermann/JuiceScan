@@ -40,7 +40,7 @@ for bin in "$STAGE/root$DIST_PREFIX"/bin/* "$STAGE/root$DIST_PREFIX"/sbin/*; do
   codesign --force --sign - "$bin"
 done
 
-if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | grep -qE "$ROOT|GitHub/canoscan"; then
+if otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" | tail -n +2 | grep -qE "$ROOT|GitHub/canoscan"; then
   echo "FEHLER: scanimage referenziert Dev-Pfade" >&2
   otool -L "$STAGE/root$DIST_PREFIX/bin/scanimage" >&2
   exit 1

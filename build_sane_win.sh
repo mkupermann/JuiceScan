@@ -104,6 +104,11 @@ grep -q 'time_t _tsec' sanei/sanei_init_debug.c || \
   sed -i 's|t = localtime (&tv.tv_sec);|{ time_t _tsec = tv.tv_sec; t = localtime (\&_tsec); }|' \
     sanei/sanei_init_debug.c
 
+# MinGW: mkdir nimmt nur ein Argument.
+grep -q 'mkdir(ret.c_str())' backend/genesys/genesys.cpp || \
+  sed -i 's|mkdir(ret.c_str(), 0700);|#ifdef __MINGW32__\n        mkdir(ret.c_str());\n#else\n        mkdir(ret.c_str(), 0700);\n#endif|' \
+    backend/genesys/genesys.cpp
+
 autoreconf -f -i
 
 # C++-verträglich: Parametername 'new' im sigprocmask-Fallback-Prototyp.

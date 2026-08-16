@@ -13,14 +13,20 @@ Windows 11.
 ## What it does
 
 - Flatbed and transparency (film and slides), 300 to 4800 dpi
+- Two-stage film workflow: fast 300 dpi preview, draw or adjust frames
+  in the built-in editor, then the scanner only scans those frame
+  areas at full resolution
 - Color or grayscale, TIFF, PNG and JPEG
 - Dust and scratch removal via the infrared channel, same principle
-  as SilverFast iSRD
+  as SilverFast iSRD. Detects silver-based B/W film automatically and
+  skips inpainting there, because silver blocks infrared like dust does
 - Negative inversion with per-channel stretch against the orange mask
 - 16-bit archival TIFF
 - Automatic detection of photos and documents on the flatbed, cropped
   to their actual size
 - Several photos in one pass, each saved as its own file
+- Calibration runs once per resolution and stays cached, not on every
+  scan
 
 ## Install on macOS
 
@@ -49,6 +55,13 @@ GUI:
 
     .venv/bin/python gui.py
 
+Film in the GUI is two-stage. Scan runs a quick 300 dpi preview of the
+whole strip. The suggested frames appear as rectangles, draw your own
+with the mouse, drag to move, Backspace deletes. Save crops then scans
+only those areas at the resolution you picked, inverts each frame on
+its own and writes numbered files. That is why a 6x6 frame takes a
+fraction of the time a full-strip high-res scan would.
+
 CLI:
 
     .venv/bin/python scan8600.py --mode flatbed
@@ -70,8 +83,9 @@ The options that matter:
                              the strip evenly (0 = auto via base gaps)
     --sane-opt OPT=VALUE     pass any further driver option through
 
-The first scan calibrates the scanner and takes longer. Calibration
-data lives in `~/.sane`.
+The first scan at a new resolution calibrates the scanner and takes
+longer. After that the calibration is cached for good in `~/.sane`,
+scans start right away.
 
 ## GIMP plugin
 
@@ -92,13 +106,16 @@ inside GIMP yet, its option logic is covered by unit tests.
 - Transparency quality of the genesys backend sits below VueScan
   level. In return you own the whole stack.
 - Infrared dust removal cannot work on silver-based B/W film or
-  Kodachrome. Silver blocks infrared. That is physics, not a bug.
+  Kodachrome. Silver blocks infrared. That is physics, not a bug. The
+  app detects this case by comparing the infrared image with the
+  visible one and skips inpainting with a warning instead of smearing
+  dense image areas.
 
 ## Tests
 
     .venv/bin/python -m pytest tests/ -q
 
-35 tests, plus hardware runs for detection, flatbed, transparency
+46 tests, plus hardware runs for detection, flatbed, transparency
 with scratch removal, negative inversion and 16-bit output.
 
 ## License

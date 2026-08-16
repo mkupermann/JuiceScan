@@ -13,6 +13,17 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path):
+    # Persistente Einstellungen aus der echten Config wuerden die
+    # Default-Tests verfaelschen. Jeder Test bekommt eine leere Config.
+    import pathlib
+    original = gui.CONFIG_FILE
+    gui.CONFIG_FILE = pathlib.Path(tmp_path) / "juicescan.json"
+    yield
+    gui.CONFIG_FILE = original
+
+
 def test_defaults_flatbed(app):
     w = gui.MainWindow()
     a = w.build_args()

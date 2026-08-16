@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Scanner discovery and device database for SANE-supported scanners."""
+import os
 import subprocess
 import json
 import pathlib
 import re
+import shutil
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -68,18 +70,37 @@ class ScannerDiscovery:
     SCANIMAGE = "scanimage"
     
     def __init__(self, scanimage_path: Optional[str] = None):
+        # Try to use SCANIMAGE from environment (set by scan8600)
         if scanimage_path:
             self.SCANIMAGE = scanimage_path
+        elif os.environ.get("SCANIMAGE"):
+            self.SCANIMAGE = os.environ["SCANIMAGE"]
+        else:
+            # Try to find in PATH
+            import shutil
+            self.SCANIMAGE = shutil.which("scanimage") or "scanimage"
     
     def list_devices(self) -> List[ScannerDevice]:
         """List all available SANE scanner devices."""
         devices = []
         try:
+            # Build environment with SANE_CONFIG_DIR
+            env = os.environ.copy()
+            # Try to get SANE_CONFIG_DIR from parent or set based on SCANIMAGE path
+            if "SANE_CONFIG_DIR" not in env and self.SCANIMAGE != "scanimage":
+                # If SCANIMAGE is a path, try to find etc/sane.d relative to it
+                scanimage_dir = os.path.dirname(self.SCANIMAGE)
+                prefix = os.path.dirname(scanimage_dir)
+                sane_dir = os.path.join(prefix, "etc", "sane.d")
+                if os.path.exists(sane_dir):
+                    env["SANE_CONFIG_DIR"] = sane_dir
+            
             result = subprocess.run(
                 [self.SCANIMAGE, "-L"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                env=env
             )
             if result.returncode == 0:
                 devices = self._parse_scanimage_list(result.stdout)
@@ -151,11 +172,21 @@ class ScannerDiscovery:
     def get_device_info(self, device_file: str) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific device."""
         try:
+            env = os.environ.copy()
+            # Try to get SANE_CONFIG_DIR from parent or set based on SCANIMAGE path
+            if "SANE_CONFIG_DIR" not in env and self.SCANIMAGE != "scanimage":
+                scanimage_dir = os.path.dirname(self.SCANIMAGE)
+                prefix = os.path.dirname(scanimage_dir)
+                sane_dir = os.path.join(prefix, "etc", "sane.d")
+                if os.path.exists(sane_dir):
+                    env["SANE_CONFIG_DIR"] = sane_dir
+            
             result = subprocess.run(
                 [self.SCANIMAGE, "-A", "-d", device_file],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
+                env=env
             )
             if result.returncode == 0:
                 return self._parse_device_info(result.stdout)

@@ -34,7 +34,8 @@ def parse_args(argv):
                         "If not specified, uses the first available device.")
     p.add_argument("--list-devices", action="store_true",
                    help="List all available SANE scanners and exit.")
-    p.add_argument("--mode", required=True, choices=["flatbed", "film"])
+    p.add_argument("--mode", choices=["flatbed", "film"],
+                   help="Scan mode: flatbed or film (transparency). Required for scanning.")
     p.add_argument("--dpi", type=int)
     p.add_argument("--format", choices=["tiff", "png", "jpeg"], default="tiff")
     p.add_argument("--output")
@@ -60,6 +61,15 @@ def parse_args(argv):
                    help="pass any scanimage option without leading dashes, "
                         "e.g. --sane-opt brightness=10 (repeatable)")
     a = p.parse_args(argv)
+    
+    # If listing devices, no other validation needed
+    if a.list_devices:
+        return a
+    
+    # Validate mode is provided for scanning
+    if a.mode is None:
+        p.error("--mode is required for scanning (flatbed or film)")
+    
     if a.dpi is None:
         a.dpi = DEFAULT_DPI[a.mode]
     if a.descratch and a.mode != "film":
@@ -154,13 +164,42 @@ def find_film_source_general(options_text):
 def _probe_device_options(device_file, retries=3):
     """Probe options for a specific device."""
     import time
+    
+    # Wenn device_file angegeben ist, erstmal versuchen
+    if device_file:
+        for attempt in range(retries):
+            probe = scanimage_run([str(SCANIMAGE), "-A", "-d", device_file])
+            opts = probe.stdout.decode(errors="replace")
+            if probe.returncode == 0 and "--source" in opts:
+                return opts
+            if attempt < retries - 1:
+                time.sleep(3)
+        
+        # Wenn das spezifische Gerät nicht funktioniert, alle Geräte probieren
+        # (USB-Adressen können sich dynamisch ändern)
+        try:
+            from discovery import ScannerDiscovery
+            disc = ScannerDiscovery(str(SCANIMAGE))
+            devices = disc.list_devices()
+            for dev in devices:
+                if dev.device_file == device_file:
+                    continue  # schon versucht
+                probe = scanimage_run([str(SCANIMAGE), "-A", "-d", dev.device_file])
+                opts = probe.stdout.decode(errors="replace")
+                if probe.returncode == 0 and "--source" in opts:
+                    return opts
+        except Exception:
+            pass
+    
+    # Fallback: ohne device_file probieren
     for attempt in range(retries):
-        probe = scanimage_run([str(SCANIMAGE), "-A", "-d", device_file])
+        probe = scanimage_run([str(SCANIMAGE), "-A"])
         opts = probe.stdout.decode(errors="replace")
         if probe.returncode == 0 and "--source" in opts:
             return opts
         if attempt < retries - 1:
             time.sleep(3)
+    
     raise ScanError(BUSY_HINT + "\nDetails:\n"
                     + probe.stderr.decode(errors="replace"))
 
@@ -182,9 +221,32 @@ def _run_pass(a, source, device=None, retries=1):
         if "Invalid argument" in err and retries > 0:
             # Transient direkt nach vorherigem Scan (Gerät noch busy/homing):
             # kurz warten, einmal neu versuchen.
+            # Auch: USB-Adresse könnte sich geändert haben - neues Gerät probieren
             import time
             time.sleep(5)
-            return _run_pass(a, source, device, retries - 1)
+            
+            # Wenn device angegeben war, vielleicht hat es sich geändert
+            if device:
+                try:
+                    from discovery import ScannerDiscovery
+                    disc = ScannerDiscovery(str(SCANIMAGE))
+                    devices = disc.list_devices()
+                    # Versuche, ein funktionierendes Gerät zu finden
+                    for dev in devices:
+                        if dev.device_file == device:
+                            # Gleiches Gerät nochmal versuchen
+                            return _run_pass(a, source, device, retries - 1)
+                        else:
+                            # Neues Gerät probieren
+                            new_r = scanimage_run(build_command(a, source, dev.device_file))
+                            if new_r.returncode == 0:
+                                return new_r.stdout
+                except Exception:
+                    pass
+                # Wenn nichts funktioniert, nochmal mit originalem device
+                return _run_pass(a, source, device, retries - 1)
+            else:
+                return _run_pass(a, source, device, retries - 1)
         raise ScanError(err)
     return r.stdout
 
@@ -222,8 +284,9 @@ def run_scan(a):
     device = getattr(a, "device", None)
     if device is None:
         # Try to auto-detect the first available device
-        from discovery import get_default_scanner
-        default_dev = get_default_scanner()
+        from discovery import ScannerDiscovery
+        disc = ScannerDiscovery(str(SCANIMAGE))
+        default_dev = disc.get_default_device()
         if default_dev:
             device = default_dev.device_file
     
@@ -465,8 +528,10 @@ def main(argv=None):
     
     # Handle --list-devices
     if a.list_devices:
-        from discovery import list_scanners
-        devices = list_scanners()
+        from discovery import ScannerDiscovery
+        # Pass the SCANIMAGE path to discovery
+        disc = ScannerDiscovery(str(SCANIMAGE))
+        devices = disc.list_devices()
         if not devices:
             print("No SANE scanners found.", file=sys.stderr)
             return 1

@@ -319,6 +319,9 @@ def run_scan(a):
 
         import numpy as np
         from PIL import Image
+        # Increase Pillow's image size limit to handle high-DPI scans
+        # CanoScan 8600F can produce very large images at high DPI
+        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
 
         import descratch as _ds
         ir_args = argparse.Namespace(**vars(a))
@@ -460,6 +463,9 @@ def _finalize(tiff_bytes, cleaned, a, out):
 
     import numpy as np
     from PIL import Image
+    # Increase Pillow's image size limit to handle high-DPI scans
+    # CanoScan 8600F can produce very large images at high DPI
+    Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
     
     # For 16-bit mode, load as 16-bit
     use_16bit = getattr(a, "depth16", False)

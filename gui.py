@@ -1019,6 +1019,8 @@ class MainWindow(QWidget):
         """Vereinigt die HDR-Scans zu einem einzigen Bild."""
         import numpy as np
         from PIL import Image
+        # Increase Pillow's image size limit to handle high-DPI scans
+        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
         import tempfile
         
         if len(self._hdr_results) < 2:
@@ -1200,6 +1202,8 @@ class MainWindow(QWidget):
     def _show_editor(self, raw_path):
         import numpy as np
         from PIL import Image
+        # Increase Pillow's image size limit to handle high-DPI scans
+        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
         arr = np.array(Image.open(raw_path).convert("RGB"))
         self.preview.set_image(QPixmap(raw_path))
         self.preview.clear_frames()
@@ -1259,6 +1263,8 @@ class MainWindow(QWidget):
     def _crops_scan_done(self, paths):
         import numpy as np
         from PIL import Image
+        # Increase Pillow's image size limit to handle high-DPI scans
+        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
         a = self._wanted
         arr = np.array(Image.open(paths[0]).convert("RGB"))
         scale = a.dpi / PREVIEW_DPI
@@ -1329,6 +1335,8 @@ class MainWindow(QWidget):
         import tempfile
 
         from PIL import Image
+        # Increase Pillow's image size limit to handle high-DPI scans
+        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
         thumbs = []
         for p in paths:
             im = Image.open(p).convert("RGB")

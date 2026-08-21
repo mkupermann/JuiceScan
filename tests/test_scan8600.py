@@ -215,3 +215,67 @@ def test_grayscale_output_is_a_third_of_the_size(tmp_path):
     scan8600._finalize(_tiff_bytes("L"), None, ag, out_g)
     scan8600._finalize(_tiff_bytes("RGB"), None, ac, out_c)
     assert out_g.stat().st_size * 2 < out_c.stat().st_size
+
+
+# --- Abbrechen -----------------------------------------------------------
+
+
+def test_cancel_terminates_the_running_pass(tmp_path):
+    # Ohne Abbruch blieb nur, die App zu beenden - und das liess
+    # scanimage als Waise weiterlaufen, mit dem Geraet in der Hand.
+    import threading
+    import time
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
+    scan8600.setup_logging(a)
+    scan8600.begin_scan_session()
+    slow = ["python3", "-c", "import time; time.sleep(30)"]
+
+    def stopper():
+        for _ in range(100):
+            if scan8600._RUNNING["proc"] is not None:
+                break
+            time.sleep(0.02)
+        scan8600.cancel_scan(kill_after=5.0)
+
+    t = threading.Thread(target=stopper)
+    t.start()
+    started = time.monotonic()
+    rc, payload, _ = scan8600.scan_run(slow)
+    t.join()
+    assert time.monotonic() - started < 10, "Abbruch hat nicht gegriffen"
+    assert rc != 0
+    assert scan8600.scan_was_cancelled()
+
+
+def test_cancel_without_a_running_scan_is_harmless():
+    scan8600.begin_scan_session()
+    assert scan8600.cancel_scan() is False
+
+
+def test_a_new_session_clears_the_cancel_flag():
+    scan8600.begin_scan_session()
+    scan8600.cancel_scan()
+    assert scan8600.scan_was_cancelled()
+    scan8600.begin_scan_session()
+    assert not scan8600.scan_was_cancelled()
+
+
+def test_the_process_registry_is_empty_after_a_pass(tmp_path):
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
+    scan8600.setup_logging(a)
+    scan8600.begin_scan_session()
+    scan8600.scan_run(["python3", "-c", "pass"])
+    assert scan8600._RUNNING["proc"] is None
+
+
+def test_buffer_default_keeps_cancelling_quick(monkeypatch):
+    # Der Puffer bestimmt die Abbruchdauer: gemessen 8,3 s bei 256 KB
+    # gegen 37,3 s bei 4 MB. Deshalb ist der Standard klein.
+    monkeypatch.delenv("JUICESCAN_BUFFER_KB", raising=False)
+    assert scan8600.buffer_kb() == 256
+    monkeypatch.setenv("JUICESCAN_BUFFER_KB", "32")
+    assert scan8600.buffer_kb() == 32
+    monkeypatch.setenv("JUICESCAN_BUFFER_KB", "unsinn")
+    assert scan8600.buffer_kb() == 256

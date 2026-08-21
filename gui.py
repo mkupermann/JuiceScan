@@ -105,6 +105,7 @@ FILM_MAX_X, FILM_MAX_Y = 70.0, 230.0
 class ScanWorker(QThread):
     done = Signal(list)
     failed = Signal(str)
+    cancelled = Signal()
     # Prozent, Sekunden seit Start des Passes.
     progress = Signal(float, float)
 
@@ -116,10 +117,17 @@ class ScanWorker(QThread):
         try:
             paths = scan8600.run_scan(self.args, on_progress=self._progress)
             self.done.emit([str(p) for p in paths])
+        except scan8600.ScanCancelled:
+            self.cancelled.emit()
         except scan8600.ScanError as e:
             self.failed.emit(str(e))
         except Exception as e:  # Treiber-/IO-Fehler sichtbar machen
             self.failed.emit(f"{type(e).__name__}: {e}")
+
+    def cancel(self):
+        """Beendet den laufenden scanimage-Prozess. Blockiert kurz, weil
+        der Treiber den Schlitten noch parken soll."""
+        return scan8600.cancel_scan()
 
     def _progress(self, percent, elapsed):
         # Läuft im Reader-Thread von scan_run, nicht im QThread selbst.
@@ -390,6 +398,13 @@ class MainWindow(QWidget):
         self.btn_scan.setMinimumHeight(44)
         self.btn_scan.clicked.connect(self.start_scan)
         left.addWidget(self.btn_scan)
+        # Ohne diesen Knopf war ein haengender Treiber nur durch
+        # Beenden der App zu beenden - und das liess scanimage als Waise
+        # weiterlaufen, mit dem Geraet in der Hand.
+        self.btn_stop = QPushButton("Stop")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_scan)
+        left.addWidget(self.btn_stop)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         left.addWidget(self.progress)
@@ -871,7 +886,18 @@ class MainWindow(QWidget):
             print(f"Error saving settings: {e}")
     
     def closeEvent(self, event):
-        """Speichert Einstellungen beim Schließen."""
+        """Speichert Einstellungen und laesst keinen Scan als Waise zurueck.
+
+        Ohne das lief scanimage nach dem Schliessen weiter, hielt das
+        USB-Geraet und bewegte den Schlitten, waehrend niemand mehr das
+        Ergebnis abholte.
+        """
+        for worker in (self.crop_worker, self.worker):
+            if worker is not None and worker.isRunning():
+                self.status.setText("Stopping the running scan…")
+                QApplication.processEvents()
+                worker.cancel()
+                worker.wait(30000)
         self.save_settings()
         super().closeEvent(event)
     
@@ -1002,6 +1028,7 @@ class MainWindow(QWidget):
     # --- Scan-Ablauf ------------------------------------------------------
     def start_scan(self):
         self.btn_scan.setEnabled(False)
+        self.btn_stop.setEnabled(True)
         self.btn_save.setEnabled(False)
         self.progress.setRange(0, 0)
         
@@ -1017,6 +1044,7 @@ class MainWindow(QWidget):
                     "both HDR exposures would come back identical. Turn off "
                     "16 bit or turn off HDR.")
                 self.btn_scan.setEnabled(True)
+                self.btn_stop.setEnabled(False)
                 self.progress.setRange(0, 1)
                 return
             self._hdr_index = 0
@@ -1064,9 +1092,13 @@ class MainWindow(QWidget):
         self.worker.done.connect(self.scan_done)
         self.worker.failed.connect(self.scan_failed)
         self.worker.progress.connect(self.scan_progress)
+        self.worker.cancelled.connect(self.scan_cancelled)
         self._scan_had_data = False
         self._warmup_timer.start(1000)
         self._warmup_seconds = 0
+        # Jeder Pass laeuft hier durch, auch Batch und HDR. Also ist das
+        # die eine Stelle, an der der Stop-Knopf scharf werden muss.
+        self.btn_stop.setEnabled(True)
         self.worker.start()
 
     # --- Warmlauf sichtbar machen ---------------------------------------
@@ -1177,6 +1209,7 @@ class MainWindow(QWidget):
             del self._hdr_results
             del self._hdr_exposures
             self.btn_scan.setEnabled(True)
+            self.btn_stop.setEnabled(False)
             self.progress.setRange(0, 1)
             self.progress.setValue(1)
             return
@@ -1192,6 +1225,7 @@ class MainWindow(QWidget):
             del self._hdr_results
             del self._hdr_exposures
             self.btn_scan.setEnabled(True)
+            self.btn_stop.setEnabled(False)
             self.progress.setRange(0, 1)
             self.progress.setValue(1)
             return
@@ -1235,6 +1269,7 @@ class MainWindow(QWidget):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         self.status.setText(f"HDR scan complete: {out}")
         self.editor_hint.hide()
         self.preview.set_image(QPixmap(str(out)))
@@ -1337,6 +1372,7 @@ class MainWindow(QWidget):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         if self._raw_path:
             self._show_editor(self._raw_path)
             return
@@ -1412,6 +1448,7 @@ class MainWindow(QWidget):
         self._crop_rects = rects
         self.btn_save.setEnabled(False)
         self.btn_scan.setEnabled(False)
+        self.btn_stop.setEnabled(True)
         self.progress.setRange(0, 0)
         self.status.setText(
             f"Scanning selection at {a.dpi} dpi (one pass)…")
@@ -1419,6 +1456,7 @@ class MainWindow(QWidget):
         self.crop_worker.done.connect(self._crops_scan_done)
         self.crop_worker.failed.connect(self.scan_failed)
         self.crop_worker.progress.connect(self.scan_progress)
+        self.crop_worker.cancelled.connect(self.scan_cancelled)
         self._scan_had_data = False
         self._warmup_seconds = 0
         self.worker = self.crop_worker
@@ -1480,6 +1518,7 @@ class MainWindow(QWidget):
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         self.btn_save.setEnabled(True)
         self._set_status_with_notes(
             f"{len(outs)} image" + ("s" if len(outs) != 1 else "")
@@ -1527,10 +1566,43 @@ class MainWindow(QWidget):
             text += f"\n\nScan log: {scan8600.LAST_LOG_PATH}"
         self.status.setText(text)
 
+    def stop_scan(self):
+        """Bricht den laufenden Pass ab."""
+        self.btn_stop.setEnabled(False)
+        self.status.setText(
+            "Stopping… the driver still parks the carriage, that takes a "
+            "moment.")
+        QApplication.processEvents()
+        worker = self.crop_worker if (self.crop_worker is not None
+                                      and self.crop_worker.isRunning()) \
+            else self.worker
+        if worker is not None:
+            worker.cancel()
+
+    def _forget_series(self):
+        """Batch- und HDR-Zustand verwerfen, damit der naechste Scan
+        nicht in einer halb abgearbeiteten Reihe weiterlaeuft."""
+        for attr in ("_hdr_index", "_hdr_total", "_hdr_results",
+                     "_hdr_exposures", "_batch_index", "_batch_total",
+                     "_batch_results"):
+            if hasattr(self, attr):
+                delattr(self, attr)
+
+    def scan_cancelled(self):
+        self._warmup_timer.stop()
+        self._forget_series()
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.status.setText("Cancelled. The scanner was released cleanly.")
+
     def scan_failed(self, msg):
         self._warmup_timer.stop()
+        self._forget_series()
         self.progress.setRange(0, 1)
         self.btn_scan.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         self.status.setText("Error.")
         QMessageBox.critical(self, "Scan failed", msg)
 

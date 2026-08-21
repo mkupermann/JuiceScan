@@ -99,3 +99,33 @@ def test_silver_detection_accepts_single_channel():
     ir = vis.copy()
     # Sichtbar und IR identisch: das ist der Silberfilm-Fall.
     assert descratch.is_silver_film(vis, ir) is True
+
+
+def test_flat_infrared_stops_inpainting_instead_of_inviting_it():
+    # Frueher meldete is_silver_film bei unbrauchbarem IR-Pass False,
+    # was "kein Silberfilm, ruhig uebermalen" heisst. Die Fehlerrichtung
+    # war damit falsch herum.
+    import numpy as np
+    import descratch
+    rng = np.random.default_rng(1)
+    vis = rng.integers(0, 255, (64, 64), dtype=np.uint8)
+    flat_ir = np.full((64, 64), 200, dtype=np.uint8)
+    assert descratch.ir_usable(flat_ir) is False
+    assert descratch.skip_reason(vis, flat_ir) == descratch.FLAT_IR_HINT
+
+
+def test_silver_film_is_still_reported_as_such():
+    import numpy as np
+    import descratch
+    rng = np.random.default_rng(2)
+    vis = rng.integers(0, 255, (64, 64), dtype=np.uint8)
+    assert descratch.skip_reason(vis, vis.copy()) == descratch.SILVER_HINT
+
+
+def test_usable_and_uncorrelated_infrared_lets_inpainting_run():
+    import numpy as np
+    import descratch
+    rng = np.random.default_rng(3)
+    vis = rng.integers(0, 255, (64, 64), dtype=np.uint8)
+    ir = rng.integers(0, 255, (64, 64), dtype=np.uint8)
+    assert descratch.skip_reason(vis, ir) is None

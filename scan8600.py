@@ -82,16 +82,32 @@ def parse_args(argv):
     return a
 
 
+DEFAULT_BUFFER_KB = 256
+
+
 def buffer_kb():
-    """scanimage-Eingabepuffer in KB. 4 MB statt 32 KB Standard: weniger
-    USB-Transaktionen. Für Messläufe überschreibbar."""
+    """scanimage-Eingabepuffer in KB.
+
+    Der Puffer bestimmt, wie lange ein Abbruch braucht: scanimage
+    reagiert erst, wenn der laufende sane_read zurückkehrt. Gemessen auf
+    dem Durchlichtaufsatz bei 300 dpi, vom SIGTERM bis zum sauberen Ende
+    mit geparktem Schlitten: 32 KB 4,2 s · 256 KB 8,3 s · 512 KB 12,8 s ·
+    4 MB 37,3 s.
+
+    Früher standen hier 4 MB, wegen weniger USB-Transaktionen. Laut
+    DECISIONS.md vom 2026-08-17 bringt die Puffergröße für den Durchsatz
+    aber nachweislich nichts. Sie kostete also nur Abbruchzeit. 256 KB
+    ist der Kompromiss: achtmal weniger Transaktionen als scanimages
+    eigener Standard von 32 KB, Abbruch unter zehn Sekunden. Für
+    Messläufe überschreibbar.
+    """
     import os
     raw = os.environ.get("JUICESCAN_BUFFER_KB", "")
     try:
         value = int(raw)
     except ValueError:
-        return 4096
-    return value if value > 0 else 4096
+        return DEFAULT_BUFFER_KB
+    return value if value > 0 else DEFAULT_BUFFER_KB
 
 
 def default_output(a):
@@ -145,6 +161,10 @@ LAST_WARNINGS = []
 
 class ScanError(Exception):
     pass
+
+
+class ScanCancelled(ScanError):
+    """Der Anwender hat abgebrochen. Kein Fehler, sondern eine Ansage."""
 
 
 def _pick_source(options_text, pattern):
@@ -377,6 +397,62 @@ def _pump_stderr(stream, log, t0, sink, on_progress=None):
         sink.append(buf)
 
 
+# --- Abbruch ------------------------------------------------------------
+#
+# Bisher gab es keinen. Ein Fenster schliessen liess das laufende
+# scanimage als Waise weiterlaufen: es hielt das USB-Geraet, bewegte den
+# Schlitten und niemand holte das Ergebnis ab. Der naechste Versuch lief
+# dann in "Scanner not found or busy".
+
+import threading as _threading
+
+_RUNNING = {"proc": None, "cancelled": False}
+_RUNNING_LOCK = _threading.Lock()
+
+
+def begin_scan_session():
+    with _RUNNING_LOCK:
+        _RUNNING["cancelled"] = False
+
+
+def scan_was_cancelled():
+    with _RUNNING_LOCK:
+        return _RUNNING["cancelled"]
+
+
+def cancel_scan(kill_after=45.0):
+    """Bricht den laufenden Pass ab. True, wenn etwas lief.
+
+    Genau EIN SIGTERM. scanimage faengt es ab und ruft sane_cancel, der
+    Treiber parkt den Schlitten. Ein zweites Signal laesst es sofort
+    aussteigen und der Schlitten bleibt stehen, wo er ist - deshalb wird
+    nicht nachgetreten. Erst wenn nach kill_after Sekunden immer noch
+    nichts passiert ist, bleibt SIGKILL, und das steht dann im Log.
+
+    Es dauert, weil scanimage erst reagiert, wenn der laufende sane_read
+    zurückkehrt: gemessen 8,3 s beim Standardpuffer, 37,3 s bei 4 MB.
+    Die Karenz muss über dem schlechtesten Fall liegen, sonst tritt man
+    einem Gerät nach, das gerade dabei ist, ordentlich aufzuräumen.
+    """
+    import time
+    with _RUNNING_LOCK:
+        _RUNNING["cancelled"] = True
+        proc = _RUNNING["proc"]
+    if proc is None or proc.poll() is not None:
+        return False
+    get_log().info("cancel requested, sending SIGTERM to pid %s", proc.pid)
+    proc.terminate()
+    deadline = time.monotonic() + kill_after
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return True
+        time.sleep(0.1)
+    get_log().info("still running after %.0fs, sending SIGKILL - the "
+                   "carriage may be left mid-travel", kill_after)
+    proc.kill()
+    return True
+
+
 def scan_run(cmd, on_progress=None):
     """Startet scanimage für einen Scanpass und protokolliert dabei die
     Fortschrittsspur. Rückgabe: (returncode, tiff_bytes, stderr_text).
@@ -396,14 +472,20 @@ def scan_run(cmd, on_progress=None):
 
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
-    pump = threading.Thread(target=_pump_stderr,
-                            args=(proc.stderr, log, t0, err, on_progress),
-                            daemon=True)
-    pump.start()
-    payload = proc.stdout.read()
-    proc.stdout.close()
-    proc.wait()
-    pump.join(timeout=5)
+    with _RUNNING_LOCK:
+        _RUNNING["proc"] = proc
+    try:
+        pump = threading.Thread(target=_pump_stderr,
+                                args=(proc.stderr, log, t0, err, on_progress),
+                                daemon=True)
+        pump.start()
+        payload = proc.stdout.read()
+        proc.stdout.close()
+        proc.wait()
+        pump.join(timeout=5)
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING["proc"] = None
 
     log.info("scan pass %.2fs rc=%s %s rss=%s", time.monotonic() - t0,
              proc.returncode, _human(len(payload)), _human(_rss_bytes()))
@@ -482,6 +564,8 @@ def _open_pass(payload):
 
 def _run_pass(a, source, device=None, retries=1, tag="scan", on_progress=None):
     rc, payload, err = scan_run(build_command(a, source, device), on_progress)
+    if scan_was_cancelled():
+        raise ScanCancelled("Scan cancelled.")
     if rc != 0:
         if "no SANE devices" in err:
             raise ScanError(
@@ -595,6 +679,7 @@ def _warn_on_narrow_film_window(a, options_text):
 
 def run_scan(a, on_progress=None):
     LAST_WARNINGS.clear()
+    begin_scan_session()
     log = setup_logging(a)
     log.info("run_scan mode=%s dpi=%s gray=%s buffer=%skB",
              getattr(a, "mode", None), getattr(a, "dpi", None),
@@ -657,12 +742,10 @@ def run_scan(a, on_progress=None):
             with stage("decode-descratch"):
                 vis = np.array(_open_pass(tiff_bytes).convert("RGB"))
                 ir = np.array(_open_pass(ir_bytes).convert("L"))
-            if _ds.is_silver_film(vis, ir):
-                LAST_WARNINGS.append(
-                    "Infrared scratch removal skipped: this looks like "
-                    "silver-based B/W film. Silver blocks infrared just like "
-                    "dust does, so inpainting would destroy image content. "
-                    "This is a physical limit, not a bug.")
+            skip = _ds.skip_reason(vis, ir)
+            if skip:
+                LAST_WARNINGS.append(skip)
+                get_log().info("descratch skipped: %s", skip.split(":")[1].strip())
             else:
                 with stage("descratch"):
                     cleaned = _ds.remove_defects(vis, ir)

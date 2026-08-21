@@ -1,3 +1,34 @@
+## 2026-08-21 — Abbrechen, Silberfilm-Wächter, Puffergröße (#16, #25)
+
+- **#25 war ein Folgeschaden, kein eigener Defekt.** Gemessen auf
+  demselben Film, dieselben zwei Pässe: volle Breite corr 0,919 →
+  Silberfilm erkannt, Inpainting übersprungen. Michaels schmaler
+  Ausschnitt corr 0,097 → nicht erkannt. Die Streifen aus #23 zerstören
+  die Korrelation, weil sichtbarer und Infrarot-Pass unterschiedliche
+  Shading-Versätze bekommen. Mit #23 behoben ist auch #25 behoben.
+- **Echter Defekt darin: die Fehlerrichtung.** `is_silver_film` gab bei
+  unbrauchbarem IR-Pass `False` zurück, und False heißt "kein
+  Silberfilm, ruhig übermalen". Bei Daten, über die man nicht urteilen
+  kann, wurde also gemalt statt gelassen. Jetzt entscheidet
+  `skip_reason`: erst Brauchbarkeit des IR-Passes, dann Silberfilm.
+- **#16, gemessen statt geschätzt.** Ein höflicher Abbruch funktioniert,
+  er dauert nur so lange, wie der laufende `sane_read` braucht. Vom
+  SIGTERM bis zum sauberen Ende mit geparktem Schlitten, Durchlicht bei
+  300 dpi: 32 KB 4,2 s · 256 KB 8,3 s · 512 KB 12,8 s · 4 MB 37,3 s.
+  Die erste Fassung wartete 20 s und trat dann mit SIGKILL nach — genau
+  das, was den Schlitten stehen lässt. Karenz jetzt 45 s.
+- **Puffergröße von 4 MB auf 256 KB.** Sie war wegen weniger
+  USB-Transaktionen gewählt, aber die NULL vom 2026-08-17 sagt, dass sie
+  für den Durchsatz nichts bringt. Damit kostete sie nur Abbruchzeit.
+  256 KB sind achtmal weniger Transaktionen als scanimages eigener
+  Standard und ein Abbruch unter zehn Sekunden. Der Durchsatz wurde
+  nicht neu gemessen; die Entscheidung stützt sich auf die
+  protokollierte NULL.
+- **Belegt auf Hardware:** Abbruch nach 3,8 s, kein SIGKILL, keine
+  verwaisten Prozesse, und der unmittelbar folgende Scan lief durch.
+  Das ist derselbe Fall, der heute beim versehentlichen Abschießen der
+  laufenden App einen Scan gekostet hat.
+
 ## 2026-08-21 — Verdict: senkrechte Streifen im Film-Workflow (#23, #24)
 
 - **Verdikt:** PASS (Ursache isoliert und behoben), NULL (zwei

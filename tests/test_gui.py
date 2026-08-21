@@ -212,6 +212,10 @@ def test_crop_scan_never_narrows_the_film_window(app, monkeypatch, tmp_path):
         def __init__(self, args):
             started["args"] = args
             self.done = self.failed = self.progress = _Sig()
+            self.cancelled = _Sig()
+
+        def isRunning(self):
+            return False
 
         def start(self):
             pass
@@ -257,6 +261,10 @@ def test_crop_scan_uses_the_resolution_shown_now(app, monkeypatch, tmp_path):
         def __init__(self, args):
             started["args"] = args
             self.done = self.failed = self.progress = _Sig()
+            self.cancelled = _Sig()
+
+        def isRunning(self):
+            return False
 
         def start(self):
             pass
@@ -275,3 +283,80 @@ def test_crop_scan_uses_the_resolution_shown_now(app, monkeypatch, tmp_path):
     assert started["args"].dpi == 1200
     assert w._wanted.dpi == 1200
     assert started["args"].mode == "film"
+
+
+def test_stop_button_starts_disabled_and_wakes_with_a_scan(app, monkeypatch,
+                                                           tmp_path):
+    import argparse
+
+    class _Sig:
+        def connect(self, *a, **kw):
+            pass
+
+    class FakeWorker:
+        def __init__(self, args):
+            self.done = self.failed = self.progress = _Sig()
+            self.cancelled = _Sig()
+            self.cancel_calls = 0
+
+        def isRunning(self):
+            return True
+
+        def cancel(self):
+            self.cancel_calls += 1
+
+        def wait(self, ms):
+            return True
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(gui, "ScanWorker", FakeWorker)
+    w = gui.MainWindow()
+    assert not w.btn_stop.isEnabled()
+    a = argparse.Namespace(
+        mode="flatbed", dpi=300, format="tiff", output=str(tmp_path / "o.tiff"),
+        gray=False, descratch=False, negative=False, autocrop=False,
+        split=False, depth16=False, frames=0, sane_opt=[], denoise=0,
+        device=None)
+    w._do_single_scan(a)
+    assert w.btn_stop.isEnabled()
+    w.stop_scan()
+    assert w.worker.cancel_calls == 1
+    assert not w.btn_stop.isEnabled()
+
+
+def test_cancelled_scan_reports_plainly_and_clears_a_series(app):
+    w = gui.MainWindow()
+    w._batch_index, w._batch_total, w._batch_results = 2, 5, []
+    w.btn_stop.setEnabled(True)
+    w.scan_cancelled()
+    assert not hasattr(w, "_batch_index")
+    assert w.btn_scan.isEnabled() and not w.btn_stop.isEnabled()
+    assert "cancel" in w.status.text().lower()
+
+
+def test_closing_mid_scan_stops_the_child(app, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+    w = gui.MainWindow()
+
+    class Running:
+        def __init__(self):
+            self.cancelled = 0
+            self.waited = 0
+
+        def isRunning(self):
+            return True
+
+        def cancel(self):
+            self.cancelled += 1
+
+        def wait(self, ms):
+            self.waited = ms
+            return True
+
+    w.worker = Running()
+    monkeypatch.setattr(w, "save_settings", lambda: None)
+    w.closeEvent(QCloseEvent())
+    assert w.worker.cancelled == 1
+    assert w.worker.waited == 30000

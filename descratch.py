@@ -53,6 +53,39 @@ def _timed(name, fn, *args, **kw):
                                             time.monotonic() - t0)
 
 
+SILVER_HINT = (
+    "Infrared scratch removal skipped: this looks like silver-based B/W "
+    "film. Silver blocks infrared just like dust does, so inpainting would "
+    "destroy image content. This is a physical limit, not a bug.")
+
+FLAT_IR_HINT = (
+    "Infrared scratch removal skipped: the infrared pass came back almost "
+    "flat, so nothing in it separates dust from image. Inpainting on that "
+    "would invent detail rather than repair it.")
+
+
+def ir_usable(ir_gray):
+    """Traegt der Infrarot-Pass ueberhaupt Struktur?"""
+    s = cv2.resize(ir_gray, (256, 256)).astype(np.float32)
+    return float(s.std()) >= 5.0
+
+
+def skip_reason(visible_rgb, ir_gray):
+    """None, wenn Inpainting laufen darf, sonst der Grund im Klartext.
+
+    Die Reihenfolge ist wichtig. Ist der IR-Pass unbrauchbar, kann
+    is_silver_film gar nicht urteilen - frueher hat es in dem Fall False
+    gemeldet, was "kein Silberfilm, ruhig uebermalen" heisst. Die
+    Fehlerrichtung war damit genau falsch herum: bei unbrauchbaren Daten
+    wurde gemalt statt gelassen.
+    """
+    if not ir_usable(ir_gray):
+        return FLAT_IR_HINT
+    if is_silver_film(visible_rgb, ir_gray):
+        return SILVER_HINT
+    return None
+
+
 def remove_defects(visible_rgb, ir_gray):
     if ir_gray.shape[:2] != visible_rgb.shape[:2]:
         ir_gray = cv2.resize(ir_gray,

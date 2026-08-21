@@ -386,6 +386,8 @@ def _pump_stderr(stream, log, t0, sink, on_progress=None):
                 elapsed = time.monotonic() - t0
                 log.debug("t=%.2fs progress=%s%% rss=%s", elapsed, m.group(1),
                           _human(_rss_bytes()))
+                with _RUNNING_LOCK:
+                    _RUNNING["got_data"] = True
                 if on_progress is not None:
                     try:
                         on_progress(float(m.group(1)), elapsed)
@@ -406,13 +408,14 @@ def _pump_stderr(stream, log, t0, sink, on_progress=None):
 
 import threading as _threading
 
-_RUNNING = {"proc": None, "cancelled": False}
+_RUNNING = {"proc": None, "cancelled": False, "got_data": False}
 _RUNNING_LOCK = _threading.Lock()
 
 
 def begin_scan_session():
     with _RUNNING_LOCK:
         _RUNNING["cancelled"] = False
+        _RUNNING["got_data"] = False
 
 
 def scan_was_cancelled():
@@ -438,17 +441,26 @@ def _escalate_after(proc, kill_after):
         pass
 
 
-# Der Treiber prueft das Abbruchflag nicht, solange er im
-# Lampen-Warmlauf steckt, und der laeuft laut genesys bis zu 65 s
-# (WARMUP_TIME). Gemessen: ein Abbruch waehrend des Warmlaufs wurde bei
-# 45 s Karenz mit SIGKILL beendet, der Schlitten bleibt dann stehen.
-# Ausgerechnet der Warmlauf ist der Moment, in dem man Stop drueckt -
-# da sieht es aus, als haenge das Geraet. Deshalb liegt die Karenz
-# ueber WARMUP_TIME.
-DEFAULT_KILL_AFTER = 75.0
+# Zwei Faelle, gemessen, und sie verhalten sich gegensaetzlich.
+#
+# Laeuft der Scan schon, wirkt SIGTERM: scanimage ruft sane_cancel, der
+# Treiber parkt den Schlitten, das dauert je nach Puffer 4 bis 13 s.
+#
+# Steckt der Treiber dagegen noch in sane_start - Lampen-Warmlauf und
+# Kalibrierung -, ist der Abbruch schlicht verloren. Nachgemessen mit
+# 200 s Geduld: der Prozess beendet sich nicht, auch nicht nachdem der
+# Scan laengst durchgelaufen waere. Warten hilft dort also nicht, es
+# verzoegert nur. Deshalb ist die Karenz kurz, solange kein Byte
+# angekommen ist, und grosszuegig, sobald Daten fliessen.
+#
+# Der harte Kill laesst den Schlitten stehen, wo er ist. Das ist
+# verschmerzbar: der Treiber faehrt ihn beim naechsten Oeffnen wieder
+# nach Hause, mehrfach gegengeprueft.
+KILL_AFTER_WHILE_WARMING = 8.0
+KILL_AFTER_WHILE_SCANNING = 75.0
 
 
-def cancel_scan(kill_after=DEFAULT_KILL_AFTER, wait=True):
+def cancel_scan(kill_after=None, wait=True):
     """Bricht den laufenden Pass ab. True, wenn etwas lief.
 
     Genau EIN SIGTERM. scanimage faengt es ab und ruft sane_cancel, der
@@ -466,8 +478,12 @@ def cancel_scan(kill_after=DEFAULT_KILL_AFTER, wait=True):
     with _RUNNING_LOCK:
         _RUNNING["cancelled"] = True
         proc = _RUNNING["proc"]
+        got_data = _RUNNING["got_data"]
     if proc is None or proc.poll() is not None:
         return False
+    if kill_after is None:
+        kill_after = (KILL_AFTER_WHILE_SCANNING if got_data
+                      else KILL_AFTER_WHILE_WARMING)
     get_log().info("cancel requested, sending SIGTERM to pid %s", proc.pid)
     proc.terminate()
     if not wait:

@@ -192,6 +192,14 @@ reacts once the running read returns. Measured from the signal to a
 clean stop with the carriage parked: 4.2 s at 32 KB, 8.3 s at the
 default 256 KB, 37.3 s at 4 MB.
 
+Stop behaves differently depending on when you press it. Once image
+data is flowing, the driver takes the request and parks the head, and
+that is the clean path. While the lamp is still warming up, the driver
+never sees the request at all — measured with 200 seconds of patience,
+the scan does not stop even after it would have finished. So in that
+window the scan is terminated instead, within about eight seconds. The
+carriage may be left mid-travel; the next scan drives it home again.
+
 ## Tests
 
     .venv/bin/python -m pytest tests/ -q

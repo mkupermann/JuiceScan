@@ -320,8 +320,11 @@ def test_cli_installs_handlers_that_release_the_scanner():
         scan8600.begin_scan_session()
 
 
-def test_grace_period_outlasts_the_lamp_warmup():
-    # Der Treiber prueft das Abbruchflag waehrend des Warmlaufs nicht,
-    # und der laeuft bis zu 65 s. Eine kuerzere Karenz endet mit
-    # SIGKILL und einem Schlitten, der stehenbleibt.
-    assert scan8600.DEFAULT_KILL_AFTER > 65.0
+def test_grace_depends_on_whether_data_is_flowing():
+    # Laeuft der Scan, wirkt SIGTERM und man wartet gern. Steckt der
+    # Treiber noch in sane_start, ist der Abbruch verloren - nachgemessen
+    # mit 200 s Geduld ohne Ende. Dort ist Warten nur Verzoegerung.
+    assert scan8600.KILL_AFTER_WHILE_WARMING < 15.0
+    assert scan8600.KILL_AFTER_WHILE_SCANNING > 40.0
+    scan8600.begin_scan_session()
+    assert scan8600._RUNNING["got_data"] is False

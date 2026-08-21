@@ -1,3 +1,26 @@
+## 2026-08-21 — Nachtrag 2 zu #16: Abbruch im Warmlauf
+
+- Wieder am gepackten Binär gefunden. Signal an die CLI, Handler feuert
+  korrekt, SIGTERM geht an scanimage — und nach 45 s SIGKILL, weil
+  nichts passiert ist. Im Log: der Abbruch kam neun Sekunden nach
+  Passbeginn, also **mitten im Lampen-Warmlauf**. Der Treiber prüft das
+  Abbruchflag dort nicht; `genesys_warmup_lamp` läuft bis zu 65 s
+  (WARMUP_TIME) durch.
+- Der frühere Messwert von 3,8 s war kein Widerspruch, sondern ein
+  anderer Fall: dort lief der Scan schon und die Lampe war warm, der
+  Abbruch landete zwischen zwei Lesevorgängen.
+- **Bitter:** Genau der Warmlauf ist der Moment, in dem jemand Stop
+  drückt — da bewegt sich der Schlitten ohne Ergebnis und es sieht nach
+  Absturz aus. Der häufigste Abbruchzeitpunkt war also der einzige, der
+  im SIGKILL endete.
+- Karenz jetzt 75 s, über WARMUP_TIME. Die Oberfläche sagt außerdem, was
+  los ist: solange kein Byte da war, steht dran, dass der Treiber die
+  Anfrage erst nach dem Warmlauf ansieht und das bis zu einer Minute
+  dauern kann.
+- **Lehre, zum dritten Mal an einem Tag:** Was im Quellbaum und in 92
+  Tests sauber aussah, war im Paket zweimal kaputt. Nur der Lauf gegen
+  das echte Artefakt hat es gezeigt.
+
 ## 2026-08-21 — Nachtrag zu #16: der Fix hatte zwei Löcher
 
 - Beim Prüfen des gepackten Binärs gefunden, nicht im Test. Ein SIGTERM

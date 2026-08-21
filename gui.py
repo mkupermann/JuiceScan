@@ -1573,9 +1573,19 @@ class MainWindow(QWidget):
     def stop_scan(self):
         """Bricht den laufenden Pass ab."""
         self.btn_stop.setEnabled(False)
-        self.status.setText(
-            "Stopping… the driver still parks the carriage, that takes a "
-            "moment.")
+        if self._scan_had_data:
+            self.status.setText(
+                "Stopping… the driver still parks the carriage, that takes "
+                "a few seconds.")
+        else:
+            # Waehrend des Warmlaufs prueft der Treiber das Abbruchflag
+            # gar nicht. Das ehrlich sagen, statt den Anwender ein
+            # zweites Mal auf einen Knopf druecken zu lassen, der
+            # scheinbar nichts tut.
+            self.status.setText(
+                "Stopping… the driver is still warming the lamp and only "
+                "looks at the request once that finishes, so this can take "
+                "up to a minute. The scanner is not stuck.")
         QApplication.processEvents()
         worker = self.crop_worker if (self.crop_worker is not None
                                       and self.crop_worker.isRunning()) \

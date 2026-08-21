@@ -318,3 +318,10 @@ def test_cli_installs_handlers_that_release_the_scanner():
         for s, h in old.items():
             signal.signal(s, h)
         scan8600.begin_scan_session()
+
+
+def test_grace_period_outlasts_the_lamp_warmup():
+    # Der Treiber prueft das Abbruchflag waehrend des Warmlaufs nicht,
+    # und der laeuft bis zu 65 s. Eine kuerzere Karenz endet mit
+    # SIGKILL und einem Schlitten, der stehenbleibt.
+    assert scan8600.DEFAULT_KILL_AFTER > 65.0

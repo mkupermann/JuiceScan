@@ -114,8 +114,10 @@ The options that matter:
     --sane-opt OPT=VALUE     pass any further driver option through
 
 The first scan at a new resolution or mode calibrates once and takes
-longer. After that the calibration is cached for good in `~/.sane` and
-scans start right away.
+longer. After that the calibration is cached in `~/.sane/<device>.cal`
+and scans start right away. The cache expires after an hour, which is
+the driver's own default — this app used to pin it so it never
+expired, until a spoiled entry turned into permanent vertical stripes.
 
 ## GIMP plugin
 
@@ -130,21 +132,19 @@ behind it is covered by unit tests.
   color during the first scans and puts density-dependent casts into
   color scans, pink sky, green shadows. Grayscale is immune, faster,
   a third of the file size, and what silver film deserves anyway.
-- Transparency scans narrower than the full window come back as
-  vertical stripes. The driver applies its shading correction with a
-  horizontal offset, so every sensor column gets another column's
-  gain. Measured at 300 dpi grayscale: the full 70 mm window is clean,
-  59.44 mm is ruined, and it makes no difference where the window sits
-  or whether the calibration cache was cleared first. Restricting the
-  height is harmless. The app therefore always scans the full width
-  and crops the frames in software. If you drive the CLI yourself, do
-  not pass `-l` or a reduced `-x` on film; you get a warning if you do.
-- If transparency scans come out as colored vertical stripes at full
-  width, that is a different fault: the narrow calibration slot at the
-  top of the transparency window is blocked, usually by the film
-  holder or the white mat. High resolutions fail first, 300 dpi
-  survives longest, which makes it look like a driver bug. It is not.
-  Clear the slot, power-cycle the scanner. This one cost us an evening.
+- Vertical stripes on transparency scans, where every column is a
+  constant wrong value: that is the driver's calibration cache gone
+  bad. Press Clear Cache and scan again; the next scan recalibrates and
+  takes a little longer. Measured with the cache deleted, both
+  sane-backends 1.3.1 and 1.4.90 are clean at 300, 600 and 1200 dpi,
+  while the spoiled cache ruined 600 and 1200. One bad entry used to
+  live forever, because this app pinned the cache so it would never
+  expire. It no longer does.
+- Another cause of stripes, if a fresh calibration does not help: the
+  narrow calibration slot sits 25.5 to 28.5 mm from the origin end,
+  just ahead of the transparency window and across its full 70 mm
+  width. A film holder or the white mat lying on it ruins the
+  calibration. Clear it, power-cycle, scan again.
 - Automatic frame detection needs bright film-base gaps between
   frames. Dense image areas look just like separators. When frames
   touch, set the frame count yourself or draw the frames in the

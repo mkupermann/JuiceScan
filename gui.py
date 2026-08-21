@@ -7,7 +7,7 @@ import pathlib
 import shutil
 import sys
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
@@ -76,6 +76,8 @@ FILM_MAX_X, FILM_MAX_Y = 70.0, 230.0
 class ScanWorker(QThread):
     done = Signal(list)
     failed = Signal(str)
+    # Prozent, Sekunden seit Start des Passes.
+    progress = Signal(float, float)
 
     def __init__(self, args):
         super().__init__()
@@ -83,11 +85,17 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
-            self.done.emit([str(p) for p in scan8600.run_scan(self.args)])
+            paths = scan8600.run_scan(self.args, on_progress=self._progress)
+            self.done.emit([str(p) for p in paths])
         except scan8600.ScanError as e:
             self.failed.emit(str(e))
         except Exception as e:  # Treiber-/IO-Fehler sichtbar machen
             self.failed.emit(f"{type(e).__name__}: {e}")
+
+    def _progress(self, percent, elapsed):
+        # Läuft im Reader-Thread von scan_run, nicht im QThread selbst.
+        # Signal ist der einzige zulässige Weg zur Oberfläche.
+        self.progress.emit(percent, elapsed)
 
 
 class MainWindow(QWidget):
@@ -97,6 +105,10 @@ class MainWindow(QWidget):
         self.worker = None
         self.crop_worker = None
         self._device_opts = {}
+        self._scan_had_data = False
+        self._warmup_seconds = 0
+        self._warmup_timer = QTimer(self)
+        self._warmup_timer.timeout.connect(self._tick_warmup)
         root = QHBoxLayout(self)
 
         # Linke Spalte: Einstellungen in ScrollArea
@@ -458,6 +470,10 @@ class MainWindow(QWidget):
     
     def refresh_devices(self):
         """Aktualisiert die Liste der verfügbaren Scanner."""
+        # USB-Adressen wandern. Beide Optionscaches verwerfen, sonst
+        # validiert der naechste Scan gegen ein Geraet von vorhin.
+        DEVICE_OPTS_CACHE.clear()
+        scan8600.clear_options_cache()
         try:
             from discovery import list_scanners
             devices = list_scanners()
@@ -1052,8 +1068,43 @@ class MainWindow(QWidget):
         self.worker = ScanWorker(a)
         self.worker.done.connect(self.scan_done)
         self.worker.failed.connect(self.scan_failed)
+        self.worker.progress.connect(self.scan_progress)
+        self._scan_had_data = False
+        self._warmup_timer.start(1000)
+        self._warmup_seconds = 0
         self.worker.start()
-    
+
+    # --- Warmlauf sichtbar machen ---------------------------------------
+    #
+    # Gemessen: bis zu 20 s vergehen zwischen sane_start und dem ersten
+    # Byte. In der Zeit faehrt der Schlitten hin und her, ohne dass ein
+    # Bild entsteht - der Treiber scannt dieselbe Zeile, bis sich die
+    # Lampenhelligkeit stabilisiert hat. Die Oberflaeche hat dazu bisher
+    # "Scanning…" behauptet und einen Spinner ohne Ende gezeigt. Das
+    # liest sich als Absturz.
+
+    def _tick_warmup(self):
+        if self._scan_had_data or self.worker is None:
+            self._warmup_timer.stop()
+            return
+        self._warmup_seconds += 1
+        if self._warmup_seconds < 3:
+            return
+        self.status.setText(
+            f"Preparing the scanner… {self._warmup_seconds} s\n"
+            "The driver is warming up the lamp: the carriage moves back "
+            "and forth over the same line until the brightness is stable. "
+            "No image data yet. Cold lamp takes 15-20 s, a second scan "
+            "right after usually takes one.")
+
+    def scan_progress(self, percent, elapsed):
+        if not self._scan_had_data:
+            self._scan_had_data = True
+            self._warmup_timer.stop()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(int(percent))
+        self.status.setText(f"Scanning… {percent:.0f}% ({elapsed:.0f} s)")
+
     def _get_hdr_exposures(self):
         """Berechnet die Belichtungswerte für die HDR-Scans.
 
@@ -1290,6 +1341,7 @@ class MainWindow(QWidget):
                 del self._batch_total
                 del self._batch_results
         
+        self._warmup_timer.stop()
         self.progress.setRange(0, 1)
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
@@ -1361,6 +1413,11 @@ class MainWindow(QWidget):
         self.crop_worker = ScanWorker(job)
         self.crop_worker.done.connect(self._crops_scan_done)
         self.crop_worker.failed.connect(self.scan_failed)
+        self.crop_worker.progress.connect(self.scan_progress)
+        self._scan_had_data = False
+        self._warmup_seconds = 0
+        self.worker = self.crop_worker
+        self._warmup_timer.start(1000)
         self.crop_worker.start()
 
     def _crops_scan_done(self, paths):
@@ -1468,6 +1525,7 @@ class MainWindow(QWidget):
         self.status.setText(text)
 
     def scan_failed(self, msg):
+        self._warmup_timer.stop()
         self.progress.setRange(0, 1)
         self.btn_scan.setEnabled(True)
         self.status.setText("Error.")

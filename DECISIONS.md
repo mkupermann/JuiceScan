@@ -1,3 +1,43 @@
+## 2026-08-21 — Verdict: Lampen-Warmlauf, Prozess-Konsolidierung (#6)
+
+- **Verdikt:** NULL (H2: ein Prozess für mehrere Pässe spart den
+  Warmlauf), PASS (Ursache der Streuung benannt), PARTIAL (umgesetzt
+  wurde, was die Messung hergibt: Probe-Cache und sichtbarer Warmlauf).
+- **H2, vorher festgelegt:** In einem scanimage-Prozess zahlt Seite 2
+  einen deutlich kürzeren Warmlauf als Seite 1, unter 25 %. PASS hätte
+  bedeutet: Batch als ein Prozess bauen.
+- **Messung.** Ein Prozess mit drei Seiten: 17 s, 1 s, 1 s. Sieht nach
+  PASS aus. Zwei getrennte Prozesse hintereinander: 10 s, 1 s — derselbe
+  Effekt ohne Konsolidierung. Und ein Prozess mit zwei Seiten lieferte
+  1 s, dann 21 s, also genau andersherum. Die Prozessgrenze erklärt
+  nichts; entscheidend ist der zeitliche Abstand zum letzten Scan.
+  **H2 verworfen, kein Umbau auf `--batch`.**
+- **Warum.** `genesys_warmup_lamp` vergleicht zwei aufeinanderfolgende
+  Scans derselben Zeile und bricht ab, sobald die relative Differenz
+  unter 0,5 % liegt. Die erste Runde vergleicht immer gegen einen
+  Nullpuffer, deshalb sind zwei Durchläufe das Minimum. Die Dauer hängt
+  am thermischen Zustand der Lampe, nicht am Prozess. `save_power` und
+  `set_powersaving` sind für gl843 leere Funktionen: `--lamp-off-time`
+  tut auf dem 8600F nichts, und beim Schließen wird die Lampe nicht
+  aktiv abgeschaltet.
+- **Auch widerlegt:** die Annahme aus #6, die App zahle den Warmlauf
+  2N-mal. Das Sondieren mit `scanimage -A` kostet 0,6 s und löst
+  **keinen** Warmlauf aus — der hängt an `sane_start`, nicht am Öffnen.
+  Die Zahl der Warmläufe ist die Zahl der echten Scanpässe.
+- **Umgesetzt.** Optionen werden einmal pro Prozess und Gerät sondiert
+  statt vor jedem Pass (`probe_options`), der Cache wird bei
+  Geräte-Refresh verworfen. Der Fortschritt aus scanimage wird bis in
+  die Oberfläche gereicht: bestimmter Fortschrittsbalken statt
+  Endlos-Spinner, und solange kein Byte da ist, sagt die Statuszeile mit
+  laufendem Sekundenzähler, dass der Treiber die Lampe warmfährt und der
+  Schlitten deshalb ohne Bild hin und her läuft.
+- **Belegt auf Hardware.** Erster Scan 39,5 s, davon 36,7 s vor dem
+  ersten Byte. Zweiter Scan direkt hinterher 12,6 s, davon 10,6 s vor
+  dem ersten Byte — und ohne Probe-Pass, der Cache greift.
+- **Offen.** Die 10-20 s beim ersten Scan nach einer Pause sind
+  Treiberverhalten und aus der App heraus nicht wegzubekommen, solange
+  jeder Pass ein eigener Prozess ist. Ehrlich benannt statt kaschiert.
+
 ## 2026-08-21 — Verdict: Scan-Abbrüche und stockender Motor
 
 - **Verdikt:** PASS (Abbruchursache gefunden und behoben), NULL (H1

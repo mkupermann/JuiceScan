@@ -79,9 +79,12 @@ Options specific to device `genesys:libusb:002:001':
 
 def _window_with_fake_device(dev="test:fake:0"):
     import scanoptions
+    w = gui.MainWindow()
+    # Erst das Fenster bauen: refresh_devices im Konstruktor leert den
+    # Cache absichtlich, damit ein Geraetewechsel nicht gegen alte
+    # Optionen validiert.
     gui.DEVICE_OPTS_CACHE[dev] = {o.name: o
                                   for o in scanoptions.parse(DEVICE_OPTS)}
-    w = gui.MainWindow()
     w.cb_device.clear()
     w.cb_device.addItem("Fake scanner", userData=dev)
     w.cb_device.setCurrentIndex(0)
@@ -131,3 +134,39 @@ def test_blend_exposures_runs(app):
     out = w._blend_exposures(dark, bright)
     assert out.shape == (2, 2, 3) and out.dtype == np.uint8
     assert int(out[0, 0, 0]) == 127
+
+
+def test_progress_switches_the_bar_from_spinner_to_percent(app):
+    w = gui.MainWindow()
+    w.progress.setRange(0, 0)          # der bisherige Endlos-Spinner
+    w._scan_had_data = False
+    w.scan_progress(42.0, 7.0)
+    assert w.progress.maximum() == 100
+    assert w.progress.value() == 42
+    assert w._scan_had_data
+    assert "42" in w.status.text()
+
+
+def test_warmup_message_appears_only_after_a_few_seconds(app):
+    # Vor dem ersten Byte fährt der Schlitten, ohne dass ein Bild
+    # entsteht. Die Oberfläche hat dazu "Scanning…" behauptet.
+    w = gui.MainWindow()
+    w.worker = object()
+    w._scan_had_data = False
+    w._warmup_seconds = 0
+    w.status.setText("start")
+    w._tick_warmup()
+    assert w.status.text() == "start"      # 1 s: noch nichts sagen
+    w._tick_warmup()
+    w._tick_warmup()
+    assert "lamp" in w.status.text().lower()
+    assert "3 s" in w.status.text()
+
+
+def test_warmup_ticker_stops_once_data_arrives(app):
+    w = gui.MainWindow()
+    w.worker = object()
+    w._scan_had_data = True
+    w.status.setText("unchanged")
+    w._tick_warmup()
+    assert w.status.text() == "unchanged"

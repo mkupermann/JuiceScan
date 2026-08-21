@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_PREFIX=/usr/local/canoscan8600f
 STAGE="$ROOT/build/dmg"
 SRC="$ROOT/vendor/sane-backends"
-VERSION="1.3.1"
+VERSION="1.3.2"
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload"
@@ -91,6 +91,8 @@ cd "$ROOT"
   --distpath "$STAGE/pybin" --workpath "$STAGE/pywork" \
   --specpath "$STAGE" "$ROOT/scan8600.py" >/dev/null 2>&1
 "$ROOT/.venv/bin/pyinstaller" --windowed --name "JuiceScan" \
+  --icon "$ROOT/assets/JuiceScan.icns" \
+  --add-data "$ROOT/assets/juicescan-mark-512.png:assets" \
   --distpath "$STAGE/pyapp" --workpath "$STAGE/pywork-gui" \
   --specpath "$STAGE" "$ROOT/gui.py" >/dev/null 2>&1
 

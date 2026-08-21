@@ -1,3 +1,38 @@
+## 2026-08-21 — Verdict: senkrechte Streifen im Film-Workflow (#23, #24)
+
+- **Verdikt:** PASS (Ursache isoliert und behoben), NULL (zwei
+  Hypothesen unterwegs verworfen).
+- **Symptom:** Vorschau sauber, die fertigen Zuschnitte fast weiß mit
+  senkrechten Linien. Rohdaten aus den überlebenden Temp-Dateien:
+  Streuung längs einer Spalte 9,3 gegen 65,0 bei der Vorschau, Sprung
+  zwischen Nachbarspalten p99 244 gegen 8,4. Jede Sensorspalte trägt
+  einen konstanten falschen Wert — Shading-Korrektur, nicht Bildinhalt.
+  Unsere Invertierung mit 1/99-Perzentil-Streckung verstärkt das nur.
+- **H1 (gecachte Kalibrierung), NULL.** Naheliegend, weil wir den Cache
+  mit `--expiration-time -1` festnageln. Cache geleert, Streifen
+  unverändert. Verworfen.
+- **H2 (verdeckter Kalibrierschlitz), NULL.** Steht als bekannte Falle
+  im README. Widerlegt durch die Vorschau: sie kalibriert über
+  denselben Schlitz und ist sauber.
+- **Ursache, isoliert.** Eine Variable nach der anderen, 300 dpi Grau,
+  y=20 zum Zeitsparen: ganzes Fenster sauber; nur vertikal versetzt
+  (t=14,22, x=70) **sauber**; nur schmaler (x=59,44, l=0) kaputt; l=7,79
+  mit rechter Kante am Rand kaputt. **Es ist allein die Breite.** Der
+  Treiber legt die Shading-Tabelle waagerecht versetzt an, jede
+  Ausgabespalte bekommt den Faktor einer anderen. Flachbett ist bei 216
+  und bei 40 mm sauber, also nur der Durchlichtaufsatz.
+- **Bitter:** Der Zuschnitt im Scanner war eine bewusste Optimierung —
+  einmal über die Gesamtfläche scannen statt pro Rahmen, um
+  Kalibrierzyklen zu sparen. Genau diese Optimierung hat das Bild
+  zerstört. Jetzt volle Breite, senkrecht einschränken, waagerecht in
+  Software zuschneiden. Kostet rund 18 % mehr Daten und keine Qualität.
+- **Zweiter Fund, #24.** `save_frames` benutzte die Einstellungen vom
+  Vorschau-Klick. Im Panel stand 1200 dpi, gescannt wurde mit 300, die
+  Zuschnitte kamen 688 statt 2600 Pixel breit — lautlos. Der zweite
+  Durchgang liest die Einstellungen jetzt frisch.
+- **Belegt auf Hardware:** derselbe Ausschnitt über die volle Breite,
+  Streuung längs Spalte 65,8, Sprung p99 11,1, drei erkennbare 6x6-Bilder.
+
 ## 2026-08-21 — Entscheidung: Graustufen bleiben einkanalig, Warmlauf-Option entfernt (#7, #8)
 
 - **#7, PASS.** `_finalize` hat jeden Nicht-16-Bit-Scan mit

@@ -556,6 +556,43 @@ def _probe_options(retries=3):
                     + probe.stderr.decode(errors="replace"))
 
 
+def _warn_on_narrow_film_window(a, options_text):
+    """Auf dem Durchlichtaufsatz ist eine verkuerzte Scanbreite kaputt.
+
+    Der genesys-Treiber legt dann die Shading-Korrektur um einige
+    Sensorspalten versetzt an. Das Ergebnis sind senkrechte Streifen,
+    unabhaengig von l und t und unabhaengig von der Kalibrierung im
+    Cache. Gemessen bei 300 dpi Grau: ganzes Fenster sauber, x=59.44
+    kaputt. Senkrecht einschraenken ist harmlos.
+    """
+    if getattr(a, "mode", None) != "film":
+        return
+    import scanoptions
+    known = {o.name: o for o in scanoptions.parse(options_text or "")}
+    full = known.get("-x")
+    if full is None or full.hi <= 0:
+        return
+    for raw in getattr(a, "sane_opt", []) or []:
+        key, _, val = raw.partition("=")
+        if _opt_flag(key) not in ("-x", "-l"):
+            continue
+        try:
+            num = float(val)
+        except ValueError:
+            continue
+        narrow = (_opt_flag(key) == "-x" and num < full.hi - 0.5) or \
+                 (_opt_flag(key) == "-l" and num > 0.5)
+        if narrow:
+            LAST_WARNINGS.append(
+                "Transparency scans narrower than the full window come "
+                "back with vertical stripes: the driver applies the "
+                "shading correction with a horizontal offset. Scan the "
+                "full width and crop afterwards. Restricting the height "
+                "is fine.")
+            get_log().info("narrow film window requested: %s", raw)
+            return
+
+
 def run_scan(a, on_progress=None):
     LAST_WARNINGS.clear()
     log = setup_logging(a)
@@ -585,6 +622,7 @@ def run_scan(a, on_progress=None):
     # Eine unbekannte Option lässt scanimage abbrechen, nachdem es das
     # Gerät schon geöffnet hat.
     a.sane_opt = filter_sane_opts(getattr(a, "sane_opt", []) or [], opts)
+    _warn_on_narrow_film_window(a, opts)
 
     if a.mode == "film":
         source = find_film_source(opts)

@@ -130,12 +130,21 @@ behind it is covered by unit tests.
   color during the first scans and puts density-dependent casts into
   color scans, pink sky, green shadows. Grayscale is immune, faster,
   a third of the file size, and what silver film deserves anyway.
-- If transparency scans come out as colored vertical stripes, the
-  narrow calibration slot at the top of the transparency window is
-  blocked, usually by the film holder or the white mat. High
-  resolutions fail first, 300 dpi survives longest, which makes it
-  look like a driver bug. It is not. Clear the slot, power-cycle the
-  scanner. This one cost us an evening.
+- Transparency scans narrower than the full window come back as
+  vertical stripes. The driver applies its shading correction with a
+  horizontal offset, so every sensor column gets another column's
+  gain. Measured at 300 dpi grayscale: the full 70 mm window is clean,
+  59.44 mm is ruined, and it makes no difference where the window sits
+  or whether the calibration cache was cleared first. Restricting the
+  height is harmless. The app therefore always scans the full width
+  and crops the frames in software. If you drive the CLI yourself, do
+  not pass `-l` or a reduced `-x` on film; you get a warning if you do.
+- If transparency scans come out as colored vertical stripes at full
+  width, that is a different fault: the narrow calibration slot at the
+  top of the transparency window is blocked, usually by the film
+  holder or the white mat. High resolutions fail first, 300 dpi
+  survives longest, which makes it look like a driver bug. It is not.
+  Clear the slot, power-cycle the scanner. This one cost us an evening.
 - Automatic frame detection needs bright film-base gaps between
   frames. Dense image areas look just like separators. When frames
   touch, set the frame count yourself or draw the frames in the
@@ -183,7 +192,7 @@ the default of 4096 gives one data point on a small scan.
 
     .venv/bin/python -m pytest tests/ -q
 
-77 tests, plus hardware runs for detection, flatbed, transparency with
+78 tests, plus hardware runs for detection, flatbed, transparency with
 scratch removal, negative inversion, 16-bit output, and a 6x6 black
 and white strip through the whole film path. Only what ran on the real
 machine counts as verified. The rest is listed as what it is.

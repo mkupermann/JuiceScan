@@ -328,3 +328,46 @@ def test_grace_depends_on_whether_data_is_flowing():
     assert scan8600.KILL_AFTER_WHILE_SCANNING > 40.0
     scan8600.begin_scan_session()
     assert scan8600._RUNNING["got_data"] is False
+
+
+# --- Kalibrier-Cache -----------------------------------------------------
+
+
+def test_calibration_is_no_longer_pinned_forever():
+    # "--expiration-time -1" hat den Cache unsterblich gemacht. Ein
+    # einmal falscher Eintrag lieferte ab da senkrechte Streifen, und
+    # das sah je nach Eintrag wie drei verschiedene Fehler aus.
+    a = scan8600.parse_args(["--mode", "film"])
+    cmd = scan8600.build_command(a, source_name="Transparency Adapter")
+    assert "--expiration-time" not in cmd
+
+
+def test_cache_files_are_found_where_the_driver_writes_them(monkeypatch,
+                                                            tmp_path):
+    # Der alte Knopf suchte ~/.sane/genesys, ein Verzeichnis, das es
+    # nicht gibt, und meldete "No cache found".
+    home = tmp_path
+    (home / ".sane").mkdir()
+    (home / ".sane" / "canon-canoscan-8600f.cal").write_bytes(b"x")
+    (home / ".sane" / "notes.txt").write_text("kein Cache")
+    monkeypatch.setattr(scan8600.pathlib.Path, "home", classmethod(lambda cls: home))
+    found = scan8600.calibration_cache_files()
+    assert [f.name for f in found] == ["canon-canoscan-8600f.cal"]
+
+
+def test_clearing_removes_them_and_reports_what_went(monkeypatch, tmp_path):
+    home = tmp_path
+    (home / ".sane").mkdir()
+    for n in ("a.cal", "b.cal"):
+        (home / ".sane" / n).write_bytes(b"x")
+    monkeypatch.setattr(scan8600.pathlib.Path, "home", classmethod(lambda cls: home))
+    scan8600.setup_logging(scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "o.tiff")]))
+    removed = scan8600.clear_calibration_cache()
+    assert sorted(f.name for f in removed) == ["a.cal", "b.cal"]
+    assert scan8600.calibration_cache_files() == []
+
+
+def test_clearing_an_empty_home_is_harmless(monkeypatch, tmp_path):
+    monkeypatch.setattr(scan8600.pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+    assert scan8600.clear_calibration_cache() == []

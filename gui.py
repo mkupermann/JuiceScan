@@ -995,19 +995,26 @@ class MainWindow(QWidget):
         return len(specific_files) == 0
     
     def clear_calibration_cache(self):
-        """Löscht den SANE-Kalibrierungs-Cache."""
-        cache_dir = pathlib.Path.home() / ".sane" / "genesys"
-        if cache_dir.exists():
-            try:
-                shutil.rmtree(cache_dir)
-                self.status.setText("✓ Calibration cache cleared.")
-                QMessageBox.information(self, "Cache Cleared", 
-                                       "Scanner calibration cache has been cleared.")
-            except Exception as e:
-                self.status.setText(f"✗ Error clearing cache: {e}")
-                QMessageBox.critical(self, "Error", f"Failed to clear cache: {e}")
+        """Löscht den Kalibrier-Cache des Treibers.
+
+        Der Knopf hat jahrelang nichts getan: er suchte ein Verzeichnis
+        ~/.sane/genesys, das es nicht gibt, und meldete brav "No cache
+        found". Der Cache ist eine Datei je Geraet, ~/.sane/<name>.cal.
+        Das war bitter, weil genau dieser Knopf der Ausweg aus einem
+        verdorbenen Cache gewesen waere.
+        """
+        removed = scan8600.clear_calibration_cache()
+        if removed:
+            names = "\n".join(str(p) for p in removed)
+            self.status.setText(
+                f"Calibration cache cleared ({len(removed)} file"
+                + ("s" if len(removed) != 1 else "") + "). The next scan "
+                "recalibrates, which takes a little longer.")
+            QMessageBox.information(self, "Cache cleared",
+                                    "Removed:\n" + names)
         else:
-            self.status.setText("No cache found.")
+            self.status.setText(
+                "No calibration cache found in ~/.sane - nothing to clear.")
     
     # --- FILENAME PATTERN --------------------------------------------------------
     def update_filename_preview(self):

@@ -8,7 +8,7 @@ import shutil
 import sys
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMessageBox,
@@ -64,6 +64,22 @@ DEFAULT_RES = {"flatbed": "300", "film": "2400"}
 
 
 PREVIEW_DPI = 300
+
+
+def app_icon_path():
+    """Symbol der App. Im gebauten Paket liegt es neben den Ressourcen,
+    im Repo unter assets/."""
+    base = getattr(sys, "_MEIPASS", None)
+    candidates = []
+    if base:
+        candidates.append(pathlib.Path(base) / "assets" / "juicescan-mark-512.png")
+    here = pathlib.Path(__file__).resolve().parent
+    candidates += [here / "assets" / "juicescan-mark-512.png",
+                   here / "assets" / "JuiceScan.icns"]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
 
 # Optionsliste je Gerät, prozessweit gecacht: jedes scanimage -A öffnet
 # das Gerät und bewegt den Schlitten, das soll genau einmal passieren.
@@ -1547,6 +1563,9 @@ QPushButton#scanButton:disabled { background: palette(mid); }
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
+    icon = app_icon_path()
+    if icon:
+        app.setWindowIcon(QIcon(str(icon)))
     w = MainWindow()
     w.resize(900, 640)
     w.show()

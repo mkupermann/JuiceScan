@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/juicescan-logo.png">
+  <img alt="JuiceScan" src="assets/juicescan-logo-light.png" width="560">
+</picture>
+
 # JuiceScan
 
 Old scanners do not die from broken hardware. They die from missing

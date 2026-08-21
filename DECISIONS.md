@@ -1,3 +1,26 @@
+## 2026-08-21 — Nachtrag 3 zu #16: Abbruch im Warmlauf ist verloren, nicht langsam
+
+- 75 s Karenz reichten immer noch nicht. Ein Lauf mit 200 s Geduld
+  klärt es: der Prozess beendet sich **überhaupt nicht**, auch nicht
+  nachdem der Scan längst durchgelaufen wäre. Ein `sane_cancel` während
+  `sane_start` — Warmlauf und Kalibrierung — geht verloren, und der
+  Prozess bleibt danach hängen.
+- Damit ist Warten in diesem Fall keine Geduld, sondern reine
+  Verzögerung. Die Karenz hängt jetzt davon ab, ob schon ein Byte
+  angekommen ist: 8 s solange nicht, 75 s sobald Daten fließen. Das
+  Signal dafür lag längst vor, es ist dieselbe Information, aus der die
+  Statuszeile den Warmlauf meldet.
+- Der harte Kill lässt den Schlitten stehen. Mehrfach gegengeprüft: der
+  Treiber fährt ihn beim nächsten Öffnen nach Hause, der Kontrollscan
+  danach war jedes Mal sauber. Das steht so in der Oberfläche und im
+  README, statt es zu verschweigen.
+- **Gemessen nach dem Umbau:** Stop im Warmlauf 8,1 s, Stop im
+  laufenden Scan 9,1 s, keine verwaisten Prozesse, Kontrollscan sauber.
+- **Lehre:** Zwei Runden lang habe ich die Karenz hochgesetzt, statt zu
+  prüfen, ob Warten überhaupt hilft. Erst der Lauf mit absurd langer
+  Geduld hat "langsam" von "verloren" getrennt. Eine Schwelle
+  hochzudrehen ist keine Diagnose.
+
 ## 2026-08-21 — Nachtrag 2 zu #16: Abbruch im Warmlauf
 
 - Wieder am gepackten Binär gefunden. Signal an die CLI, Handler feuert

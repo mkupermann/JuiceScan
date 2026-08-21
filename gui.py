@@ -1583,9 +1583,10 @@ class MainWindow(QWidget):
             # zweites Mal auf einen Knopf druecken zu lassen, der
             # scheinbar nichts tut.
             self.status.setText(
-                "Stopping… the driver is still warming the lamp and only "
-                "looks at the request once that finishes, so this can take "
-                "up to a minute. The scanner is not stuck.")
+                "Stopping… no image data has arrived yet, so the driver is "
+                "still warming the lamp and cannot take the request. The "
+                "scan is being terminated instead; the carriage finds its "
+                "way home on the next scan.")
         QApplication.processEvents()
         worker = self.crop_worker if (self.crop_worker is not None
                                       and self.crop_worker.isRunning()) \

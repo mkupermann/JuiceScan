@@ -1,3 +1,42 @@
+## 2026-08-21 — Verdict: die Streifen waren der Kalibrier-Cache, den wir festgenagelt haben
+
+- **Verdikt:** PASS (Ursache gefunden), und drei eigene NULLs davor, von
+  denen ich zwei als Ergebnis verkauft habe.
+- **Die Matrix, Cache vor jedem Lauf geloescht:** 1.3.1 und 1.4.90, je
+  300/600/1200 dpi Durchlicht — **alle sechs sauber** (Sprung 5 bis 22).
+  Mit dem alten Cache waren 600 und 1200 kaputt (Sprung 141 bis 154).
+- **Ursache:** `--expiration-time -1`. Wir haben den Cache absichtlich
+  unsterblich gemacht, damit genesys nicht alle 60 Minuten neu
+  kalibriert. Damit wird ein einmal falscher Eintrag dauerhaft, und je
+  nachdem welcher Eintrag verdorben war, sah es aus wie drei
+  verschiedene Fehler: mal nur bei 600 dpi, mal nur im schmalen Fenster,
+  mal beides.
+- **Zweite Haelfte, und die ist schlimmer:** Der Knopf "Clear Cache"
+  hat nie etwas geloescht. Er suchte `~/.sane/genesys/`, ein
+  Verzeichnis, das es nicht gibt, und meldete "No cache found". Der
+  Cache ist eine Datei je Geraet, `~/.sane/<name>.cal`. Der einzige
+  Ausweg aus einem verdorbenen Cache war also seit jeher kaputt — und
+  als Michael ihn gedrueckt hat, haben wir beide aus dem ausbleibenden
+  Effekt geschlossen, es sei nicht der Cache.
+- **Wo ich falsch lag, der Reihe nach.** Erst H1 Pipe-Rueckstau (NULL,
+  korrekt verworfen). Dann "es ist allein die Breite" — eine ganze
+  Isolationsleiter, sauber gemessen, **komplett bei 300 dpi**, und als
+  Ursache verkauft. Der Breiten-Fix ging als v1.4.1 raus. Dann der
+  Kalibrierschlitz, den ich zuerst verworfen und dann wieder geholt
+  habe. Beide Male habe ich einen Befund verallgemeinert, ohne die
+  Variable zu variieren, die ihn erklaeren wuerde.
+- **Der Cache war der Stoerfaktor in fast jeder Messung dieses Tages.**
+  Er wird zwischen Aufloesungen, Geometrien und sogar zwischen den
+  Treiberversionen geteilt. Bis ich ihn kontrolliert habe, war jede
+  Ableitung wackelig.
+- **Umgesetzt:** Pin raus, Treiberstandard von 60 Minuten begrenzt den
+  Schaden auf eine Stunde. `clear_calibration_cache()` loescht die
+  echten Dateien und meldet, welche. Der Knopf ruft sie auf.
+- **Offen und ehrlich:** Der Breiten-Fix aus v1.4.1 bleibt drin, obwohl
+  seine Begruendung falsch war. Mit sauberem Cache ist schmal
+  nachweislich in Ordnung. Er kostet 18 % mehr Daten und schadet nicht;
+  ob wir zurueckgehen, ist eine eigene Entscheidung mit eigener Messung.
+
 ## 2026-08-21 — Nachtrag 3 zu #16: Abbruch im Warmlauf ist verloren, nicht langsam
 
 - 75 s Karenz reichten immer noch nicht. Ein Lauf mit 200 s Geduld

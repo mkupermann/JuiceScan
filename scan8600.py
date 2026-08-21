@@ -85,6 +85,31 @@ def parse_args(argv):
 DEFAULT_BUFFER_KB = 256
 
 
+def calibration_cache_files():
+    """Die Kalibrierdateien des Treibers: ~/.sane/<geraet>.cal."""
+    d = pathlib.Path.home() / ".sane"
+    return sorted(d.glob("*.cal")) if d.is_dir() else []
+
+
+def clear_calibration_cache():
+    """Loescht sie und meldet, was weg ist.
+
+    Ein verdorbener Eintrag liefert senkrechte Streifen, und ohne diesen
+    Weg kommt man nicht an ihm vorbei.
+    """
+    removed = []
+    for f in calibration_cache_files():
+        try:
+            f.unlink()
+            removed.append(f)
+        except OSError:
+            pass
+    if removed:
+        get_log().info("calibration cache cleared: %s",
+                       ", ".join(f.name for f in removed))
+    return removed
+
+
 def buffer_kb():
     """scanimage-Eingabepuffer in KB.
 
@@ -142,10 +167,16 @@ def build_command(a, source_name, device=None):
     if source_name:
         cmd += ["--source", source_name]
     cmd += ["--resolution", str(a.dpi),
-            "--mode", "Gray" if a.gray else "Color",
-            # Kalibrier-Cache nie verfallen lassen, sonst verwirft
-            # genesys die Kalibrierung nach 60 Minuten.
-            "--expiration-time", "-1"]
+            "--mode", "Gray" if a.gray else "Color"]
+    # Frueher stand hier "--expiration-time -1", damit genesys die
+    # Kalibrierung nicht nach 60 Minuten verwirft. Das war teuer
+    # erkauft: ein einmal falscher Eintrag im Cache wurde damit
+    # unsterblich und lieferte ab da senkrechte Streifen - je nach
+    # Eintrag mal bei 600 dpi, mal nur im schmalen Fenster, was wie drei
+    # verschiedene Fehler aussah. Gemessen: mit geloeschtem Cache sind
+    # 300, 600 und 1200 dpi in beiden Treiberversionen sauber, mit dem
+    # alten Cache waren 600 und 1200 kaputt. Der Treiberstandard von 60
+    # Minuten begrenzt den Schaden auf eine Stunde.
     if getattr(a, "depth16", False):
         cmd += ["--depth", "16"]
     for raw in getattr(a, "sane_opt", []) or []:

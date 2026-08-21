@@ -19,7 +19,12 @@ class Option:
 
 _LINE = re.compile(r"^\s+(-{1,2}[\w-]+)(\[=\(yes\|no\)\])?\s+(.*?)\s*"
                    r"(?:\[([^\]]*)\])?\s*$")
-_RANGE = re.compile(r"^(-?\d+(?:\.\d+)?)\.\.(-?\d+(?:\.\d+)?)([a-z%]*)$")
+# scanimage hängt bei quantisierten Bereichen ein "(in steps of N)" an,
+# z.B. "--brightness -100..100 (in steps of 1)". Ohne diesen Zusatz im
+# Muster fällt die Option komplett aus der Liste - und wer sie gegen
+# die Liste prüft, hält sie fälschlich für nicht unterstützt.
+_RANGE = re.compile(r"^(-?\d+(?:\.\d+)?)\.\.(-?\d+(?:\.\d+)?)"
+                    r"([a-z%]*)(?:\s*\(in steps of\s*[\d.]+\))?$")
 _UNIT = re.compile(r"(dpi|mm|%)$")
 
 

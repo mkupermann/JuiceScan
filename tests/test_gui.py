@@ -1,6 +1,9 @@
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Kein scanimage -A aus den Tests heraus: jeder Aufruf öffnet das
+# Gerät und bewegt den Schlitten.
+os.environ.setdefault("JUICESCAN_NO_PROBE", "1")
 
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -62,3 +65,69 @@ def test_grayscale_selection_sets_gray(app):
     assert w.build_args().gray
     w.cb_color.setCurrentText("Color")
     assert not w.build_args().gray
+
+
+DEVICE_OPTS = """
+Options specific to device `genesys:libusb:002:001':
+  Enhancement:
+    --brightness -100..100% [0]
+        Controls the brightness of the acquired image.
+    --contrast -100..100% [0]
+        Controls the contrast of the acquired image.
+"""
+
+
+def _window_with_fake_device(dev="test:fake:0"):
+    import scanoptions
+    gui.DEVICE_OPTS_CACHE[dev] = {o.name: o
+                                  for o in scanoptions.parse(DEVICE_OPTS)}
+    w = gui.MainWindow()
+    w.cb_device.clear()
+    w.cb_device.addItem("Fake scanner", userData=dev)
+    w.cb_device.setCurrentIndex(0)
+    w._sync_advanced_to_device()
+    return w
+
+
+def test_slider_ranges_come_from_the_driver(app):
+    w = _window_with_fake_device()
+    assert w.slider_brightness.minimum() == -100
+    assert w.slider_brightness.maximum() == 100
+    assert w.slider_contrast.minimum() == -100
+
+
+def test_option_the_scanner_lacks_is_disabled(app):
+    # sharpness kennt der genesys-Treiber nicht. Früher ging sie trotzdem
+    # raus und scanimage brach ab, nachdem der Schlitten schon lief.
+    w = _window_with_fake_device()
+    assert not w.slider_sharpness.isEnabled()
+    assert w.slider_sharpness.value() == 0
+    a = w.build_args()
+    assert not any(o.startswith("sharpness") for o in a.sane_opt)
+
+
+def test_out_of_range_setting_is_clamped_to_the_driver(app):
+    w = _window_with_fake_device()
+    w.slider_brightness.setValue(-119)
+    assert w.slider_brightness.value() == -100
+
+
+def test_hdr_exposures_stay_inside_driver_range(app):
+    w = _window_with_fake_device()
+    w.slider_brightness.setValue(80)
+    w.slider_hdr_comp.setValue(100)
+    first, second = w._get_hdr_exposures()
+    assert first == 80 and second == 100
+
+
+def test_blend_exposures_runs(app):
+    # Regression: numpy war in _blend_exposures nicht im Namensraum, jeder
+    # HDR-Merge ist mit NameError gestorben - auf dem Main-Thread, also
+    # ungefangen.
+    import numpy as np
+    w = gui.MainWindow()
+    dark = np.zeros((2, 2, 3), dtype=np.uint8)
+    bright = np.full((2, 2, 3), 255, dtype=np.uint8)
+    out = w._blend_exposures(dark, bright)
+    assert out.shape == (2, 2, 3) and out.dtype == np.uint8
+    assert int(out[0, 0, 0]) == 127

@@ -82,6 +82,18 @@ def parse_args(argv):
     return a
 
 
+def buffer_kb():
+    """scanimage-Eingabepuffer in KB. 4 MB statt 32 KB Standard: weniger
+    USB-Transaktionen. Für Messläufe überschreibbar."""
+    import os
+    raw = os.environ.get("JUICESCAN_BUFFER_KB", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return 4096
+    return value if value > 0 else 4096
+
+
 def default_output(a):
     ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -95,7 +107,15 @@ def build_command(a, source_name, device=None):
     # abgerundet (Flachbett kann nur bis 1200, Durchlicht bis 4800).
     # 4-MB-Puffer statt 32 KB Standard: weniger USB-Transaktionen,
     # messbar ruhigerer Durchsatz bei Hochauflösungs-Scans.
-    cmd = [str(SCANIMAGE), "--format=tiff", "--buffer-size=4096"]
+    # -p lässt scanimage den Fortschritt auf stderr schreiben. Das ist die
+    # einzige Spur, an der sich ein Stocken des Schlittens von einem
+    # gleichmäßig langsamen Scan unterscheiden lässt. Der Fortschritt
+    # wird einmal pro sane_read gedruckt, die Puffergröße bestimmt also
+    # die Auflösung der Messung: mit 4 MB bekommt man bei kleinen Scans
+    # nur einen einzigen Messpunkt. Für Messläufe JUICESCAN_BUFFER_KB
+    # klein setzen (z.B. 32).
+    cmd = [str(SCANIMAGE), "--format=tiff",
+           f"--buffer-size={buffer_kb()}", "-p"]
     
     # Add device if specified
     if device:
@@ -210,14 +230,242 @@ def scanimage_run(cmd, **kw):
     return subprocess.run(cmd, env=env, capture_output=True, **kw)
 
 
-def _run_pass(a, source, device=None, retries=1):
-    r = scanimage_run(build_command(a, source, device))
-    if r.returncode != 0:
-        err = r.stderr.decode(errors="replace")
+# --- Diagnose ------------------------------------------------------------
+#
+# Bis hierher gab es im Projekt keine Zeitmessung und keinen Fortschritt.
+# Ein "der Motor stockt" liess sich damit weder belegen noch widerlegen.
+# Alles unter diesem Kommentar dient genau dem: messen statt raten.
+
+LAST_LOG_PATH = None
+
+
+def _rss_bytes():
+    """Spitzen-RSS dieses Prozesses. Auf macOS in Bytes, auf Linux in KiB."""
+    try:
+        import resource
+    except ImportError:
+        return 0
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak if sys.platform == "darwin" else peak * 1024
+
+
+def _human(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.1f}{unit}"
+        n /= 1024.0
+
+
+def log_path_for(a):
+    out = getattr(a, "output", None) or default_output(a)
+    return pathlib.Path(out).with_suffix(".scanlog")
+
+
+def setup_logging(a):
+    """Ein Logger: alles in die Datei neben der Ausgabe, Stufenzeiten
+    zusätzlich auf stderr. Idempotent, Handler werden ersetzt."""
+    global LAST_LOG_PATH
+    import logging
+
+    log = logging.getLogger("juicescan")
+    log.setLevel(logging.DEBUG)
+    log.propagate = False
+    for h in list(log.handlers):
+        log.removeHandler(h)
+        h.close()
+
+    LAST_LOG_PATH = None
+    try:
+        path = log_path_for(a)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(path, encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        log.addHandler(fh)
+        LAST_LOG_PATH = path
+    except OSError:
+        pass
+
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(logging.Formatter("juicescan: %(message)s"))
+    log.addHandler(sh)
+    return log
+
+
+def get_log():
+    import logging
+    return logging.getLogger("juicescan")
+
+
+class stage:
+    """Kontextmanager, misst eine Pipeline-Stufe."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        import time
+        self.t0 = time.monotonic()
+        return self
+
+    def __exit__(self, *exc):
+        import time
+        get_log().info("stage %s %.2fs rss=%s", self.name,
+                       time.monotonic() - self.t0, _human(_rss_bytes()))
+        return False
+
+
+_PROGRESS = re.compile(r"Progress:\s*([\d.]+)%")
+
+
+def _pump_stderr(stream, log, t0, sink):
+    """Liest stderr mit, zeitstempelt jede Fortschrittsmeldung und hält
+    Progress-Zeilen aus dem Fehlertext heraus."""
+    import os
+    import time
+    buf = ""
+    fd = stream.fileno()
+    while True:
+        # os.read statt stream.read: der gepufferte Reader blockiert, bis
+        # 256 Bytes zusammen sind, und liefert die ganze Fortschrittsspur
+        # erst am Scanende - mit wertlosen Zeitstempeln.
+        try:
+            chunk = os.read(fd, 256)
+        except OSError:
+            break
+        if not chunk:
+            break
+        buf += chunk.decode(errors="replace")
+        # scanimage trennt Fortschritt mit \r, Fehler mit \n.
+        buf = buf.replace("\r", "\n")
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            m = _PROGRESS.search(line)
+            if m:
+                log.debug("t=%.2fs progress=%s%% rss=%s",
+                          time.monotonic() - t0, m.group(1),
+                          _human(_rss_bytes()))
+            elif line.strip():
+                sink.append(line)
+    if buf.strip() and not _PROGRESS.search(buf):
+        sink.append(buf)
+
+
+def scan_run(cmd):
+    """Startet scanimage für einen Scanpass und protokolliert dabei die
+    Fortschrittsspur. Rückgabe: (returncode, tiff_bytes, stderr_text)."""
+    import os
+    import threading
+    import time
+
+    log = get_log()
+    env = dict(os.environ, **SANE_ENV)
+    t0 = time.monotonic()
+    err = []
+
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    pump = threading.Thread(target=_pump_stderr,
+                            args=(proc.stderr, log, t0, err), daemon=True)
+    pump.start()
+    payload = proc.stdout.read()
+    proc.stdout.close()
+    proc.wait()
+    pump.join(timeout=5)
+
+    log.info("scan pass %.2fs rc=%s %s rss=%s", time.monotonic() - t0,
+             proc.returncode, _human(len(payload)), _human(_rss_bytes()))
+    return proc.returncode, payload, "\n".join(err)
+
+
+# --- Optionen gegen das Gerät prüfen -----------------------------------
+
+
+def _opt_flag(key):
+    key = key.lstrip("-")
+    return ("-" if len(key) == 1 else "--") + key
+
+
+def _fmt_num(x):
+    return str(int(x)) if float(x).is_integer() else f"{x:.1f}"
+
+
+def filter_sane_opts(sane_opts, options_text):
+    """Verwirft Optionen, die das Gerät nicht kennt, und klemmt Bereiche.
+
+    scanimage steigt bei einer unbekannten Option aus, nachdem es das
+    Gerät schon geöffnet hat - der Schlitten fährt an und bleibt stehen,
+    ohne dass ein Bild entsteht. Werte außerhalb des Bereichs rundet der
+    Treiber still. Beides hier abfangen und benennen.
+    """
+    import scanoptions
+
+    known = {o.name: o for o in scanoptions.parse(options_text or "")}
+    if not known:
+        # Ohne verwertbare Optionsliste nicht raten, sondern durchlassen.
+        return list(sane_opts or [])
+
+    kept = []
+    for raw in sane_opts or []:
+        key, sep, val = raw.partition("=")
+        flag = _opt_flag(key)
+        opt = known.get(flag)
+        if opt is None:
+            LAST_WARNINGS.append(
+                f"{flag.lstrip('-')}: not supported by this scanner, "
+                "option ignored")
+            get_log().info("dropped unsupported option %s", flag)
+            continue
+        if opt.kind == "range" and sep and opt.hi > opt.lo:
+            try:
+                num = float(val)
+            except ValueError:
+                kept.append(raw)
+                continue
+            clamped = min(max(num, opt.lo), opt.hi)
+            if clamped != num:
+                LAST_WARNINGS.append(
+                    f"{flag.lstrip('-')}: {_fmt_num(num)} is outside "
+                    f"{_fmt_num(opt.lo)}..{_fmt_num(opt.hi)}, "
+                    f"clamped to {_fmt_num(clamped)}")
+                raw = f"{key}={_fmt_num(clamped)}"
+        kept.append(raw)
+    return kept
+
+
+# 70 x 230 mm Durchlichtfenster bei 4800 dpi sind rund 575 Mpx. Das alte
+# Limit von 500 Mpx liegt darunter, ein Vollstrip-Scan wäre nach dem
+# Scannen an Pillows Bomb-Check gestorben.
+MAX_PIXELS = 700_000_000
+
+def _open_pass(payload):
+    """PIL-Image aus einem Scanpass. Einzige Stelle, an der das
+    Pixel-Limit gesetzt wird."""
+    import io
+
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+    return Image.open(io.BytesIO(payload))
+
+
+def _run_pass(a, source, device=None, retries=1, tag="scan"):
+    rc, payload, err = scan_run(build_command(a, source, device))
+    if rc != 0:
         if "no SANE devices" in err:
             raise ScanError(
                 "Scanner not found. " + BUSY_HINT
                 + "\nDetails:\n" + err)
+        if "unrecognized option" in err:
+            import re as _re
+            m = _re.search(r"unrecognized option [`\'\"]?-*([\w-]+)", err)
+            name = m.group(1) if m else "one of the scan options"
+            raise ScanError(
+                f"This scanner does not support the option '{name}'. "
+                "scanimage aborts on an unknown option, which is why the "
+                "carriage moves and then stops without producing an image. "
+                "Reset that control in the Advanced section and scan again."
+                "\nDetails:\n" + err)
         if "Invalid argument" in err and retries > 0:
             # Transient direkt nach vorherigem Scan (Gerät noch busy/homing):
             # kurz warten, einmal neu versuchen.
@@ -235,20 +483,22 @@ def _run_pass(a, source, device=None, retries=1):
                     for dev in devices:
                         if dev.device_file == device:
                             # Gleiches Gerät nochmal versuchen
-                            return _run_pass(a, source, device, retries - 1)
+                            return _run_pass(a, source, device, retries - 1,
+                                             tag)
                         else:
                             # Neues Gerät probieren
-                            new_r = scanimage_run(build_command(a, source, dev.device_file))
-                            if new_r.returncode == 0:
-                                return new_r.stdout
+                            new_rc, new_payload, _ = scan_run(
+                                build_command(a, source, dev.device_file))
+                            if new_rc == 0:
+                                return new_payload
                 except Exception:
                     pass
                 # Wenn nichts funktioniert, nochmal mit originalem device
-                return _run_pass(a, source, device, retries - 1)
+                return _run_pass(a, source, device, retries - 1, tag)
             else:
-                return _run_pass(a, source, device, retries - 1)
+                return _run_pass(a, source, device, retries - 1, tag)
         raise ScanError(err)
-    return r.stdout
+    return payload
 
 
 BUSY_HINT = (
@@ -274,6 +524,10 @@ def _probe_options(retries=3):
 
 def run_scan(a):
     LAST_WARNINGS.clear()
+    log = setup_logging(a)
+    log.info("run_scan mode=%s dpi=%s gray=%s buffer=%skB",
+             getattr(a, "mode", None), getattr(a, "dpi", None),
+             getattr(a, "gray", None), buffer_kb())
     if not SCANIMAGE.exists():
         raise ScanError(
             f"Driver not found at {SCANIMAGE}. Install the pkg from the DMG "
@@ -291,11 +545,17 @@ def run_scan(a):
     
     # Probe device options to find available sources
     # If device is specified, use it; otherwise probe without device (uses default)
-    if device:
-        opts = _probe_device_options(device)
-    else:
-        opts = _probe_options()
-    
+    with stage("probe"):
+        if device:
+            opts = _probe_device_options(device)
+        else:
+            opts = _probe_options()
+
+    # Optionen gegen das echte Gerät prüfen, bevor scanimage sie sieht.
+    # Eine unbekannte Option lässt scanimage abbrechen, nachdem es das
+    # Gerät schon geöffnet hat.
+    a.sane_opt = filter_sane_opts(getattr(a, "sane_opt", []) or [], opts)
+
     if a.mode == "film":
         source = find_film_source(opts)
         if source is None and device:
@@ -312,35 +572,38 @@ def run_scan(a):
                     "No infrared source found for --descratch. "
                     "Available options:\n" + opts)
     
-    tiff_bytes = _run_pass(a, source, device)
-    cleaned = None
-    if ir_source:
-        import io
+    try:
+        with stage("scan-visible"):
+            tiff_bytes = _run_pass(a, source, device, tag="visible")
+        cleaned = None
+        if ir_source:
+            import numpy as np
 
-        import numpy as np
-        from PIL import Image
-        # Increase Pillow's image size limit to handle high-DPI scans
-        # CanoScan 8600F can produce very large images at high DPI
-        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
-
-        import descratch as _ds
-        ir_args = argparse.Namespace(**vars(a))
-        ir_args.gray = True
-        ir_bytes = _run_pass(ir_args, ir_source, device)
-        vis = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
-        ir = np.array(Image.open(io.BytesIO(ir_bytes)).convert("L"))
-        if _ds.is_silver_film(vis, ir):
-            LAST_WARNINGS.append(
-                "Infrared scratch removal skipped: this looks like "
-                "silver-based B/W film. Silver blocks infrared just like "
-                "dust does, so inpainting would destroy image content. "
-                "This is a physical limit, not a bug.")
-        else:
-            cleaned = _ds.remove_defects(vis, ir)
-    return _finalize(tiff_bytes, cleaned, a, out)
+            import descratch as _ds
+            ir_args = argparse.Namespace(**vars(a))
+            ir_args.gray = True
+            with stage("scan-infrared"):
+                ir_bytes = _run_pass(ir_args, ir_source, device, tag="ir")
+            with stage("decode-descratch"):
+                vis = np.array(_open_pass(tiff_bytes).convert("RGB"))
+                ir = np.array(_open_pass(ir_bytes).convert("L"))
+            if _ds.is_silver_film(vis, ir):
+                LAST_WARNINGS.append(
+                    "Infrared scratch removal skipped: this looks like "
+                    "silver-based B/W film. Silver blocks infrared just like "
+                    "dust does, so inpainting would destroy image content. "
+                    "This is a physical limit, not a bug.")
+            else:
+                with stage("descratch"):
+                    cleaned = _ds.remove_defects(vis, ir)
+        return _finalize(tiff_bytes, cleaned, a, out)
+    finally:
+        if LAST_LOG_PATH:
+            log.info("scan log: %s", LAST_LOG_PATH)
 
 
 def _save_array(arr, a, path):
+    import numpy as np
     from PIL import Image
     
     # For 16-bit arrays, we need to use the correct mode
@@ -386,7 +649,7 @@ def invert_negative(arr):
             if means[c] > 1:
                 inv[..., c] *= target / means[c]
         inv = np.clip(inv, 0, max_val)
-        # Eine gemeinsame Streckung ueber die Luminanz statt pro Kanal,
+        # Eine gemeinsame Streckung über die Luminanz statt pro Kanal,
         # sonst zerlegt die Streckung den Grauwelt-Abgleich wieder.
         gray = inv.mean(axis=2)
         lo, hi = np.percentile(gray, 1), np.percentile(gray, 99)
@@ -457,32 +720,28 @@ def denoise(arr, strength=10):
 def _finalize(tiff_bytes, cleaned, a, out):
     plain = a.format == "tiff" and not a.autocrop and not a.negative and not a.depth16
     if cleaned is None and plain:
-        out.write_bytes(tiff_bytes)
+        with stage("write-plain"):
+            out.write_bytes(tiff_bytes)
         return [out]
-    import io
 
     import numpy as np
-    from PIL import Image
-    # Increase Pillow's image size limit to handle high-DPI scans
-    # CanoScan 8600F can produce very large images at high DPI
-    Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
-    
+
     # For 16-bit mode, load as 16-bit
     use_16bit = getattr(a, "depth16", False)
-    
+
     if cleaned is None:
-        if use_16bit:
-            # Load as 16-bit (PIL will auto-detect the mode from TIFF)
-            img = Image.open(io.BytesIO(tiff_bytes))
-            # If the image is already 16-bit, keep it that way
-            if img.mode in ('I;16', 'I;16B', 'I;16L'):
-                arr = np.array(img)
+        with stage("decode"):
+            if use_16bit:
+                # Load as 16-bit (PIL will auto-detect the mode from TIFF)
+                img = _open_pass(tiff_bytes)
+                # If the image is already 16-bit, keep it that way
+                if img.mode in ('I;16', 'I;16B', 'I;16L'):
+                    arr = np.array(img)
+                else:
+                    # Convert to 16-bit
+                    arr = np.array(img.convert('I;16'))
             else:
-                # Convert to 16-bit
-                img_16 = img.convert('I;16')
-                arr = np.array(img_16)
-        else:
-            arr = np.array(Image.open(io.BytesIO(tiff_bytes)).convert("RGB"))
+                arr = np.array(_open_pass(tiff_bytes).convert("RGB"))
     else:
         arr = cleaned
     
@@ -498,15 +757,16 @@ def _finalize(tiff_bytes, cleaned, a, out):
                      else _ac.split_regions(arr)) or [arr]
             outs = []
             for i, crop in enumerate(crops, 1):
-                if a.negative:
-                    crop = invert_negative(crop)
-                # Denoising anwenden
-                denoise_strength = getattr(a, "denoise", 0)
-                if denoise_strength > 0:
-                    crop = denoise(crop, denoise_strength)
-                p = (out.with_stem(f"{out.stem}_{i}")
-                     if len(crops) > 1 else out)
-                _save_array(crop, a, p)
+                with stage(f"crop-{i}"):
+                    if a.negative:
+                        crop = invert_negative(crop)
+                    # Denoising anwenden
+                    denoise_strength = getattr(a, "denoise", 0)
+                    if denoise_strength > 0:
+                        crop = denoise(crop, denoise_strength)
+                    p = (out.with_stem(f"{out.stem}_{i}")
+                         if len(crops) > 1 else out)
+                    _save_array(crop, a, p)
                 outs.append(p)
             return outs
         if film:
@@ -520,12 +780,15 @@ def _finalize(tiff_bytes, cleaned, a, out):
         else:
             arr = _ac.crop_to_content(arr)
     if a.negative:
-        arr = invert_negative(arr)
+        with stage("invert"):
+            arr = invert_negative(arr)
     # Denoising anwenden (für nicht-gesplittete Bilder)
     denoise_strength = getattr(a, "denoise", 0)
     if denoise_strength > 0:
-        arr = denoise(arr, denoise_strength)
-    _save_array(arr, a, out)
+        with stage("denoise"):
+            arr = denoise(arr, denoise_strength)
+    with stage("save"):
+        _save_array(arr, a, out)
     return [out]
 
 

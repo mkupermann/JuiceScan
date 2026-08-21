@@ -39,9 +39,23 @@ def is_silver_film(visible_rgb, ir_gray):
     return corr > 0.6
 
 
+def _timed(name, fn, *args, **kw):
+    """Stufenzeit ins juicescan-Log. Bewusst ohne Import von scan8600,
+    sonst hätten wir einen Ringschluss."""
+    import logging
+    import time
+    t0 = time.monotonic()
+    try:
+        return fn(*args, **kw)
+    finally:
+        logging.getLogger("juicescan").info("stage %s %.2fs", name,
+                                            time.monotonic() - t0)
+
+
 def remove_defects(visible_rgb, ir_gray):
     if ir_gray.shape[:2] != visible_rgb.shape[:2]:
         ir_gray = cv2.resize(ir_gray,
                              (visible_rgb.shape[1], visible_rgb.shape[0]))
-    mask = defect_mask(ir_gray)
-    return cv2.inpaint(visible_rgb, mask, 3, cv2.INPAINT_TELEA)
+    mask = _timed("defect-mask", defect_mask, ir_gray)
+    return _timed("inpaint", cv2.inpaint, visible_rgb, mask, 3,
+                  cv2.INPAINT_TELEA)

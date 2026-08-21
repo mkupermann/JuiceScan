@@ -189,7 +189,11 @@ class ScannerDiscovery:
                 env=env
             )
             if result.returncode == 0:
-                return self._parse_device_info(result.stdout)
+                info = self._parse_device_info(result.stdout)
+                # Rohtext mitgeben: scanoptions.parse ist der getestete
+                # Parser, die GUI baut ihre Regler daraus.
+                info["raw"] = result.stdout
+                return info
         except Exception as e:
             print(f"Error getting device info: {e}")
         return None

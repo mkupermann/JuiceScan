@@ -49,3 +49,26 @@ def test_split_requires_autocrop():
     import pytest
     with pytest.raises(SystemExit):
         scan8600.parse_args(["--mode", "flatbed", "--split"])
+
+
+def test_region_detection_accepts_single_channel():
+    # Ein Graustufen-Scan hat keine drei Kanaele. cvtColor(RGB2GRAY)
+    # wirft darauf, deshalb muss die Erkennung 2D vertragen.
+    import numpy as np
+    import autocrop
+    gray = np.zeros((120, 160), dtype=np.uint8)
+    gray[30:90, 40:120] = 220
+    regions = autocrop.detect_regions(gray)
+    assert regions, "kein Bereich auf dem Graubild gefunden"
+    x, y, w, h = regions[0]
+    assert w > 40 and h > 30
+
+
+def test_crop_to_content_accepts_single_channel():
+    import numpy as np
+    import autocrop
+    gray = np.zeros((120, 160), dtype=np.uint8)
+    gray[30:90, 40:120] = 220
+    out = autocrop.crop_to_content(gray)
+    assert out.ndim == 2
+    assert out.shape[0] <= 120 and out.shape[1] <= 160

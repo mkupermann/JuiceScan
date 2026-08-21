@@ -773,7 +773,13 @@ def _finalize(tiff_bytes, cleaned, a, out):
                     # Convert to 16-bit
                     arr = np.array(img.convert('I;16'))
             else:
-                arr = np.array(_open_pass(tiff_bytes).convert("RGB"))
+                img = _open_pass(tiff_bytes)
+                # Ein Graustufen-Scan hat einen Kanal. Ihn auf RGB
+                # aufzublasen verdreifacht Datei und Arbeitsspeicher,
+                # ohne ein Bit Information hinzuzufügen. Die Quelle
+                # entscheidet, nicht eine feste Annahme.
+                target = "L" if img.mode in ("L", "1") else "RGB"
+                arr = np.array(img.convert(target))
     else:
         arr = cleaned
     

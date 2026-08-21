@@ -13,8 +13,17 @@ MIN_AREA_FRAC = 0.005
 PAD = 8
 
 
+def _as_gray(img):
+    """Graukanal, egal ob RGB oder bereits einkanalig hereinkommt.
+
+    Ein Graustufen-Scan hat keine drei Kanäle. cvtColor(RGB2GRAY) wirft
+    darauf, deshalb hier die Fallunterscheidung statt beim Aufrufer.
+    """
+    return img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+
 def detect_regions(img_rgb):
-    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+    gray = _as_gray(img_rgb)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     _, mask = cv2.threshold(blur, 0, 255,
                             cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
@@ -67,7 +76,7 @@ MIN_FRAME_FRAC = 0.02
 
 
 def film_window(img_rgb):
-    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+    gray = _as_gray(img_rgb)
     _, bright = cv2.threshold(gray, 0, 255,
                               cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(bright)
@@ -95,7 +104,7 @@ def detect_film_frames(img_rgb, expected=None):
     # (Lücke), fast schwarzer Halter-Steg, Bildinhalt (mittlere Helligkeit
     # oder hohe Varianz). Zusammenhängende Inhaltsläufe sind die Frames.
     x0, y0, x1, y1 = film_window(img_rgb)
-    win = cv2.cvtColor(img_rgb[y0:y1, x0:x1], cv2.COLOR_RGB2GRAY)
+    win = _as_gray(img_rgb[y0:y1, x0:x1])
     if win.size == 0:
         return []
     vertical = win.shape[0] >= win.shape[1]

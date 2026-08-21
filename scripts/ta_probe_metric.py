@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from PIL import Image
 # Increase Pillow's image size limit to handle high-DPI scans
-Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
+Image.MAX_IMAGE_PIXELS = 700_000_000  # 70x230mm bei 4800 dpi sind ~575 Mpx
 
 
 def ratio(path):

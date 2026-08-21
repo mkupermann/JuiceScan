@@ -169,3 +169,49 @@ def test_progress_callback_errors_do_not_kill_the_scan(tmp_path):
 
     rc, payload, _ = scan8600.scan_run(fake, on_progress=boom)
     assert rc == 0 and payload == b"DATA"
+
+
+# --- Graustufen bleiben einkanalig --------------------------------------
+
+
+def _tiff_bytes(mode, size=(40, 30)):
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new(mode, size, 128 if mode == "L" else (128, 90, 60)).save(buf, "TIFF")
+    return buf.getvalue()
+
+
+def test_grayscale_scan_is_not_inflated_to_rgb(tmp_path):
+    # Ein Graustufen-Scan hat einen Kanal. Ihn auf RGB aufzublasen
+    # verdreifacht Datei und Arbeitsspeicher ohne Informationsgewinn.
+    from PIL import Image
+    out = tmp_path / "gray.tiff"
+    a = scan8600.parse_args(["--mode", "flatbed", "--gray", "--negative",
+                             "--output", str(out)])
+    scan8600.setup_logging(a)
+    scan8600._finalize(_tiff_bytes("L"), None, a, out)
+    assert Image.open(out).mode == "L"
+
+
+def test_colour_scan_still_lands_as_rgb(tmp_path):
+    from PIL import Image
+    out = tmp_path / "colour.tiff"
+    a = scan8600.parse_args(["--mode", "flatbed", "--negative",
+                             "--output", str(out)])
+    scan8600.setup_logging(a)
+    scan8600._finalize(_tiff_bytes("RGB"), None, a, out)
+    assert Image.open(out).mode == "RGB"
+
+
+def test_grayscale_output_is_a_third_of_the_size(tmp_path):
+    out_g = tmp_path / "g.tiff"
+    out_c = tmp_path / "c.tiff"
+    ag = scan8600.parse_args(["--mode", "flatbed", "--gray", "--negative",
+                              "--output", str(out_g)])
+    ac = scan8600.parse_args(["--mode", "flatbed", "--negative",
+                              "--output", str(out_c)])
+    scan8600.setup_logging(ag)
+    scan8600._finalize(_tiff_bytes("L"), None, ag, out_g)
+    scan8600._finalize(_tiff_bytes("RGB"), None, ac, out_c)
+    assert out_g.stat().st_size * 2 < out_c.stat().st_size

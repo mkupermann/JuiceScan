@@ -37,8 +37,10 @@ Silicon and Windows 11.
 - Batch mode, presets, persistent settings, custom scan areas
 - HDR multi-exposure for dense negatives, two passes merged (new, not
   yet verified on hardware)
-- Lamp warm-up guard so a cold lamp cannot tint your color scans
-  (new, not yet verified on hardware)
+- The lamp warm-up is shown for what it is. The driver scans one line
+  over and over until the brightness is stable, up to twenty seconds
+  with the carriage moving and no image coming out. The window says so,
+  with a second count, instead of claiming to be scanning
 - Dust and scratch removal over the infrared channel, the same
   principle SilverFast calls iSRD. On silver B/W film the app detects
   that infrared cannot work there and says so instead of ruining the
@@ -120,7 +122,7 @@ behind it is covered by unit tests.
 - Scanning B/W film? Set Color to Grayscale. A cold lamp shifts its
   color during the first scans and puts density-dependent casts into
   color scans, pink sky, green shadows. Grayscale is immune, faster,
-  and what silver film deserves anyway.
+  a third of the file size, and what silver film deserves anyway.
 - If transparency scans come out as colored vertical stripes, the
   narrow calibration slot at the top of the transparency window is
   blocked, usually by the film holder or the white mat. High

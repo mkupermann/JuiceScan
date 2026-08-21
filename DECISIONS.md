@@ -1,3 +1,27 @@
+## 2026-08-21 — Entscheidung: Graustufen bleiben einkanalig, Warmlauf-Option entfernt (#7, #8)
+
+- **#7, PASS.** `_finalize` hat jeden Nicht-16-Bit-Scan mit
+  `.convert("RGB")` dekodiert. Ein Graustufen-Scan bekam damit drei
+  identische Kanäle: dreifache Datei, dreifacher Arbeitsspeicher in
+  jeder Folgestufe, null zusätzliche Information. Jetzt entscheidet die
+  Quelle: Modus `L` bleibt `L`. `autocrop` und `descratch` riefen
+  `cvtColor(RGB2GRAY)` und wären auf 2D geflogen, beide vertragen jetzt
+  beides. Gemessen am gleichen Flachbettbereich: 218 KB statt 653 KB.
+- **#8, entfernt statt repariert.** Die Option "Lamp Warm-up" hat vor
+  dem Öffnen des Geräts `time.sleep()` gemacht. Zu dem Zeitpunkt ist
+  die Lampe nicht bestromt, geheizt hat sie also nichts — dafür stand
+  die Oberfläche bis zu 60 Sekunden, weil der Schlaf auf dem Hauptthread
+  lag. Reparieren hätte bedeutet, das Gerät offen zu halten; das geht
+  nicht, solange jeder Pass ein eigener Prozess ist (siehe #6). Der
+  Treiber macht den Warmlauf ohnehin bei jedem `sane_start` selbst, und
+  seit v1.3.1 steht er sichtbar in der Statuszeile. Eine Bedienung, die
+  eine Fähigkeit verspricht, die sie nicht hat, ist schlechter als
+  keine. README entsprechend korrigiert, die Zeile behauptete einen
+  "lamp warm-up guard".
+- **Nebenher vereinheitlicht:** `MAX_IMAGE_PIXELS` stand an fünf
+  Stellen auf 500 Mpx, das Durchlichtfenster bei 4800 dpi hat aber rund
+  575 Mpx. Jetzt überall `scan8600.MAX_PIXELS`.
+
 ## 2026-08-21 — Verdict: Lampen-Warmlauf, Prozess-Konsolidierung (#6)
 
 - **Verdikt:** NULL (H2: ein Prozess für mehrere Pässe spart den

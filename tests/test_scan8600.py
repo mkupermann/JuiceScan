@@ -279,3 +279,42 @@ def test_buffer_default_keeps_cancelling_quick(monkeypatch):
     assert scan8600.buffer_kb() == 32
     monkeypatch.setenv("JUICESCAN_BUFFER_KB", "unsinn")
     assert scan8600.buffer_kb() == 256
+
+
+def test_cancel_without_waiting_returns_at_once(tmp_path):
+    # Die Oberflaeche und ein Signalhandler duerfen hier nicht
+    # stehenbleiben: der Treiber braucht Sekunden zum Parken.
+    import time
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
+    scan8600.setup_logging(a)
+    scan8600.begin_scan_session()
+    import subprocess as sp
+    proc = sp.Popen(["python3", "-c", "import time; time.sleep(30)"])
+    with scan8600._RUNNING_LOCK:
+        scan8600._RUNNING["proc"] = proc
+    t0 = time.monotonic()
+    assert scan8600.cancel_scan(wait=False) is True
+    assert time.monotonic() - t0 < 1.0, "cancel_scan hat blockiert"
+    proc.wait(timeout=10)
+    with scan8600._RUNNING_LOCK:
+        scan8600._RUNNING["proc"] = None
+
+
+def test_cli_installs_handlers_that_release_the_scanner():
+    # Ein Signal an die CLI beendete frueher nur Python und liess
+    # scanimage als Waise mit dem Geraet in der Hand zurueck.
+    import signal
+    old = {s: signal.getsignal(s)
+           for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    try:
+        scan8600.install_signal_handlers()
+        scan8600.begin_scan_session()
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        handler(signal.SIGTERM, None)          # kein laufender Scan
+        assert scan8600.scan_was_cancelled()
+    finally:
+        for s, h in old.items():
+            signal.signal(s, h)
+        scan8600.begin_scan_session()

@@ -420,7 +420,25 @@ def scan_was_cancelled():
         return _RUNNING["cancelled"]
 
 
-def cancel_scan(kill_after=45.0):
+def _escalate_after(proc, kill_after):
+    """Wartet im Hintergrund und tritt nur nach, wenn wirklich nichts
+    passiert. Laeuft als eigener Thread, damit weder die Oberflaeche
+    noch ein Signalhandler blockiert."""
+    import time
+    deadline = time.monotonic() + kill_after
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(0.1)
+    get_log().info("still running after %.0fs, sending SIGKILL - the "
+                   "carriage may be left mid-travel", kill_after)
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def cancel_scan(kill_after=45.0, wait=True):
     """Bricht den laufenden Pass ab. True, wenn etwas lief.
 
     Genau EIN SIGTERM. scanimage faengt es ab und ruft sane_cancel, der
@@ -442,6 +460,13 @@ def cancel_scan(kill_after=45.0):
         return False
     get_log().info("cancel requested, sending SIGTERM to pid %s", proc.pid)
     proc.terminate()
+    if not wait:
+        # Der Aufrufer ist die Oberflaeche oder ein Signalhandler.
+        # Beide duerfen hier nicht stehenbleiben, das Nachtreten
+        # uebernimmt ein eigener Thread.
+        _threading.Thread(target=_escalate_after, args=(proc, kill_after),
+                          daemon=True).start()
+        return True
     deadline = time.monotonic() + kill_after
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -951,8 +976,33 @@ def _finalize(tiff_bytes, cleaned, a, out):
     return [out]
 
 
+def install_signal_handlers():
+    """Ctrl-C und SIGTERM sollen den Scanner freigeben, nicht nur uns.
+
+    Ohne das beendet ein Signal nur den Python-Prozess und laesst
+    scanimage als Waise zurueck: es haelt weiter das USB-Geraet, bewegt
+    weiter den Schlitten, und der naechste Versuch laeuft in "Scanner
+    not found or busy". Nur fuer die CLI - die Oberflaeche hat ihren
+    Stop-Knopf.
+    """
+    import signal
+
+    def handler(signum, frame):
+        # Nur ausloesen. Das Warten passiert im Hintergrund, und den
+        # Abbruch meldet _run_pass, sobald der Pass zurueckkommt.
+        get_log().info("signal %s received, cancelling the scan", signum)
+        cancel_scan(wait=False)
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError):
+            pass
+
+
 def main(argv=None):
     a = parse_args(argv if argv is not None else sys.argv[1:])
+    install_signal_handlers()
     
     # Handle --list-devices
     if a.list_devices:
@@ -972,6 +1022,12 @@ def main(argv=None):
     
     try:
         outs = run_scan(a)
+    except ScanCancelled:
+        # Kein Fehler, sondern eine Ansage. 130 ist die uebliche Antwort
+        # auf ein Abbruchsignal.
+        print("scan8600: cancelled, the scanner was released cleanly.",
+              file=sys.stderr)
+        return 130
     except ScanError as e:
         print(f"scan8600: {e}", file=sys.stderr)
         return 1

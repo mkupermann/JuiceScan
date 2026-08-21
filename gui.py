@@ -125,9 +125,13 @@ class ScanWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}")
 
     def cancel(self):
-        """Beendet den laufenden scanimage-Prozess. Blockiert kurz, weil
-        der Treiber den Schlitten noch parken soll."""
-        return scan8600.cancel_scan()
+        """Beendet den laufenden scanimage-Prozess.
+
+        Ohne Warten: der Treiber braucht ein paar Sekunden, bis er den
+        Schlitten geparkt hat, und die Oberflaeche darf in der Zeit
+        nicht stehen. Das Ende meldet das Signal cancelled.
+        """
+        return scan8600.cancel_scan(wait=False)
 
     def _progress(self, percent, elapsed):
         # Läuft im Reader-Thread von scan_run, nicht im QThread selbst.

@@ -1,3 +1,21 @@
+## 2026-08-21 — Nachtrag zu #16: der Fix hatte zwei Löcher
+
+- Beim Prüfen des gepackten Binärs gefunden, nicht im Test. Ein SIGTERM
+  an die **CLI** beendete nur Python und ließ scanimage als Waise
+  zurück, mit dem Gerät in der Hand — genau der Fehler, den #16
+  beheben sollte, nur über einen anderen Eingang. Der Stop-Knopf der
+  Oberfläche war abgesichert, `Ctrl-C` im Terminal nicht.
+  `install_signal_handlers()` in `main()` schließt das.
+- **Zweites Loch: `cancel_scan` blockierte bis zu 45 Sekunden**, und die
+  Oberfläche rief es aus dem Hauptthread. Der Stop-Knopf hätte das
+  Fenster eingefroren, im Regelfall knapp vier Sekunden, im schlechten
+  bis zur Karenzgrenze. Jetzt `wait=False` für Oberfläche und
+  Signalhandler; das Nachtreten übernimmt ein eigener Thread.
+- **Lehre:** Beide Löcher lagen außerhalb dessen, was die Tests
+  abdecken konnten — der eine im Prozessverhalten der gepackten CLI,
+  der andere im Threading-Modell der Oberfläche. Gefunden hat sie nur
+  der Lauf gegen das echte Paket.
+
 ## 2026-08-21 — Abbrechen, Silberfilm-Wächter, Puffergröße (#16, #25)
 
 - **#25 war ein Folgeschaden, kein eigener Defekt.** Gemessen auf

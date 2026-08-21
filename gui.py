@@ -66,6 +66,19 @@ DEFAULT_RES = {"flatbed": "300", "film": "2400"}
 PREVIEW_DPI = 300
 
 
+def open_scan(path):
+    """Bild in seiner natürlichen Kanalzahl öffnen.
+
+    Ein Graustufen-Scan hat einen Kanal. Ihn auf RGB aufzublasen
+    verdreifacht Datei und Arbeitsspeicher, ohne ein Bit Information
+    hinzuzufügen - bei 4800 dpi ist eine Seite schon über ein Gigabyte.
+    """
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = scan8600.MAX_PIXELS
+    img = Image.open(path)
+    return img.convert("L" if img.mode in ("L", "1") else "RGB")
+
+
 def app_icon_path():
     """Symbol der App. Im gebauten Paket liegt es neben den Ressourcen,
     im Repo unter assets/."""
@@ -343,23 +356,12 @@ class MainWindow(QWidget):
         batch_layout.addWidget(self.sp_batch_count)
         left.addWidget(batch_box)
         
-        # ===== LAMP WARM-UP =====
-        lamp_box = QGroupBox("Lamp Warm-up")
-        lamp_layout = QVBoxLayout(lamp_box)
-        self.ck_lamp_warmup = QCheckBox("Warm up lamp before color scans")
-        self.ck_lamp_warmup.stateChanged.connect(self.toggle_lamp_warmup)
-        lamp_layout.addWidget(self.ck_lamp_warmup)
-        
-        # Warm-up duration
-        lamp_duration_layout = QHBoxLayout()
-        lamp_duration_layout.addWidget(QLabel("Warm-up time (sec):"))
-        self.sp_lamp_duration = QSpinBox()
-        self.sp_lamp_duration.setRange(5, 60)
-        self.sp_lamp_duration.setValue(10)
-        lamp_duration_layout.addWidget(self.sp_lamp_duration)
-        lamp_layout.addLayout(lamp_duration_layout)
-        left.addWidget(lamp_box)
-        
+        # Frueher stand hier eine Option "Lamp Warm-up". Sie hat vor dem
+        # Oeffnen des Geraets geschlafen - da war die Lampe noch gar
+        # nicht bestromt, geheizt hat sie also nichts, und die
+        # Oberflaeche stand bis zu 60 s. Den Warmlauf macht der Treiber
+        # selbst bei jedem sane_start, sichtbar in der Statuszeile.
+
         # ===== HDR SCANNING =====
         hdr_box = QGroupBox("HDR (Multi-Exposure)")
         hdr_layout = QVBoxLayout(hdr_box)
@@ -613,10 +615,6 @@ class MainWindow(QWidget):
         self.slider_hdr_comp.setEnabled(state == Qt.Checked)
         self.lbl_hdr_comp.setEnabled(state == Qt.Checked)
     
-    def toggle_lamp_warmup(self, state):
-        """Aktiviert/Deaktiviert den Lamp Warm-up."""
-        self.sp_lamp_duration.setEnabled(state == Qt.Checked)
-    
     def update_hdr_comp_label(self, value):
         """Aktualisiert das EV-Label basierend auf dem Slider-Wert."""
         # Map slider value (-100 to 100) to EV (-3 to +3)
@@ -773,10 +771,6 @@ class MainWindow(QWidget):
                     self.sp_batch_count.setValue(settings["batch_count"])
                 
                 # Lamp Warm-up
-                if "lamp_warmup" in settings:
-                    self.ck_lamp_warmup.setChecked(settings["lamp_warmup"])
-                if "lamp_duration" in settings:
-                    self.sp_lamp_duration.setValue(settings["lamp_duration"])
                 
                 # HDR
                 if "hdr_mode" in settings:
@@ -860,8 +854,6 @@ class MainWindow(QWidget):
             "mirror_vertical": self.ck_mirror_vertical.isChecked(),
             "batch_mode": self.ck_batch_mode.isChecked(),
             "batch_count": self.sp_batch_count.value(),
-            "lamp_warmup": self.ck_lamp_warmup.isChecked(),
-            "lamp_duration": self.sp_lamp_duration.value(),
             "hdr_mode": self.ck_hdr_mode.isChecked(),
             "hdr_comp": self.slider_hdr_comp.value(),
             "custom_area": self.ck_custom_area.isChecked(),
@@ -1015,19 +1007,6 @@ class MainWindow(QWidget):
         
         a = self.build_args()
         self._wanted = a
-        
-        # Lamp Warm-up für Farb-Scans?
-        if (self.ck_lamp_warmup.isChecked() and 
-            self.cb_color.currentText() == "Color" and 
-            self.mode() == "film"):
-            duration = self.sp_lamp_duration.value()
-            self.status.setText(f"Warming up lamp for {duration} seconds...")
-            QApplication.processEvents()
-            
-            import time
-            time.sleep(duration)
-            self.status.setText("Lamp warm-up complete. Starting scan...")
-            QApplication.processEvents()
         
         # HDR-Modus?
         if self.ck_hdr_mode.isChecked():
@@ -1188,8 +1167,7 @@ class MainWindow(QWidget):
         """Vereinigt die HDR-Scans zu einem einzigen Bild."""
         import numpy as np
         from PIL import Image
-        # Increase Pillow's image size limit to handle high-DPI scans
-        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
+        Image.MAX_IMAGE_PIXELS = scan8600.MAX_PIXELS
         import tempfile
         
         if len(self._hdr_results) < 2:
@@ -1205,10 +1183,8 @@ class MainWindow(QWidget):
         
         # Lade die beiden Bilder
         try:
-            img1 = Image.open(self._hdr_results[0]).convert("RGB")
-            img2 = Image.open(self._hdr_results[1]).convert("RGB")
-            arr1 = np.array(img1)
-            arr2 = np.array(img2)
+            arr1 = np.array(open_scan(self._hdr_results[0]))
+            arr2 = np.array(open_scan(self._hdr_results[1]))
         except Exception as e:
             self.status.setText(f"Error loading HDR images: {e}")
             del self._hdr_index
@@ -1374,10 +1350,7 @@ class MainWindow(QWidget):
 
     def _show_editor(self, raw_path):
         import numpy as np
-        from PIL import Image
-        # Increase Pillow's image size limit to handle high-DPI scans
-        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
-        arr = np.array(Image.open(raw_path).convert("RGB"))
+        arr = np.array(open_scan(raw_path))
         self.preview.set_image(QPixmap(raw_path))
         self.preview.clear_frames()
         expected = self.sp_frames.value()
@@ -1439,10 +1412,8 @@ class MainWindow(QWidget):
     def _crops_scan_done(self, paths):
         import numpy as np
         from PIL import Image
-        # Increase Pillow's image size limit to handle high-DPI scans
-        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
         a = self._wanted
-        arr = np.array(Image.open(paths[0]).convert("RGB"))
+        arr = np.array(open_scan(paths[0]))
         scale = a.dpi / PREVIEW_DPI
         ux0, uy0 = self._union_px
         ext = {"tiff": "tiff", "png": "png", "jpeg": "jpg"}[a.format]
@@ -1510,10 +1481,10 @@ class MainWindow(QWidget):
 
         from PIL import Image
         # Increase Pillow's image size limit to handle high-DPI scans
-        Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 million pixels
+        Image.MAX_IMAGE_PIXELS = scan8600.MAX_PIXELS
         thumbs = []
         for p in paths:
-            im = Image.open(p).convert("RGB")
+            im = open_scan(p).convert("RGB")
             im.thumbnail((360, 360))
             thumbs.append(im)
         gap = 12

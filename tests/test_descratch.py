@@ -89,3 +89,13 @@ def test_descratch_requires_film_mode():
     import pytest
     with pytest.raises(SystemExit):
         scan8600.parse_args(["--mode", "flatbed", "--descratch"])
+
+
+def test_silver_detection_accepts_single_channel():
+    import numpy as np
+    import descratch
+    rng = np.random.default_rng(0)
+    vis = rng.integers(0, 255, (64, 64), dtype=np.uint8)
+    ir = vis.copy()
+    # Sichtbar und IR identisch: das ist der Silberfilm-Fall.
+    assert descratch.is_silver_film(vis, ir) is True

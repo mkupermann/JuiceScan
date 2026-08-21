@@ -29,7 +29,8 @@ def is_silver_film(visible_rgb, ir_gray):
     """Silberbasierter S/W-Film blockt Infrarot flächig. Das IR-Bild ist
     dann eine Dichtekarte des Motivs statt einer fast leeren Staubkarte,
     und Inpainting würde Bildinhalt zerstören."""
-    g = cv2.cvtColor(visible_rgb, cv2.COLOR_RGB2GRAY)
+    g = visible_rgb if visible_rgb.ndim == 2 else cv2.cvtColor(
+        visible_rgb, cv2.COLOR_RGB2GRAY)
     size = (256, 256)
     sg = cv2.resize(g, size).astype(np.float32).ravel()
     si = cv2.resize(ir_gray, size).astype(np.float32).ravel()

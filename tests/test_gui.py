@@ -170,3 +170,27 @@ def test_warmup_ticker_stops_once_data_arrives(app):
     w.status.setText("unchanged")
     w._tick_warmup()
     assert w.status.text() == "unchanged"
+
+
+def test_lamp_warmup_control_is_gone(app):
+    # Die Option hat vor dem Oeffnen des Geraets geschlafen und damit
+    # nichts gewaermt, dafuer die Oberflaeche bis zu 60 s blockiert.
+    w = gui.MainWindow()
+    for attr in ("ck_lamp_warmup", "sp_lamp_duration", "toggle_lamp_warmup"):
+        assert not hasattr(w, attr), f"{attr} lebt noch"
+
+
+def test_start_scan_does_not_sleep_on_the_gui_thread():
+    import inspect
+    src = inspect.getsource(gui.MainWindow.start_scan)
+    assert "sleep" not in src
+
+
+def test_open_scan_keeps_a_grayscale_file_single_channel(tmp_path):
+    from PIL import Image
+    p = tmp_path / "g.tiff"
+    Image.new("L", (20, 10), 100).save(p)
+    assert gui.open_scan(p).mode == "L"
+    p2 = tmp_path / "c.tiff"
+    Image.new("RGB", (20, 10), (1, 2, 3)).save(p2)
+    assert gui.open_scan(p2).mode == "RGB"

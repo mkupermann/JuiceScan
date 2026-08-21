@@ -194,3 +194,84 @@ def test_open_scan_keeps_a_grayscale_file_single_channel(tmp_path):
     p2 = tmp_path / "c.tiff"
     Image.new("RGB", (20, 10), (1, 2, 3)).save(p2)
     assert gui.open_scan(p2).mode == "RGB"
+
+
+def test_crop_scan_never_narrows_the_film_window(app, monkeypatch, tmp_path):
+    """Waagerecht einschraenken ist auf dem Durchlichtaufsatz kaputt.
+
+    Der genesys-Treiber legt die Shading-Korrektur dann versetzt an und
+    liefert senkrechte Streifen - gemessen bei 300 dpi Grau: ganzes
+    Fenster sauber, x=59.44 kaputt, unabhaengig von l und t. Der
+    Zuschnitt passiert deshalb in Software, nicht im Scanner.
+    """
+    import argparse
+
+    started = {}
+
+    class FakeWorker:
+        def __init__(self, args):
+            started["args"] = args
+            self.done = self.failed = self.progress = _Sig()
+
+        def start(self):
+            pass
+
+    class _Sig:
+        def connect(self, *a, **kw):
+            pass
+
+    monkeypatch.setattr(gui, "ScanWorker", FakeWorker)
+    w = gui.MainWindow()
+    w.rb_film.setChecked(True)
+    w._raw_path = str(tmp_path / "preview.tiff")
+    w._wanted = argparse.Namespace(
+        mode="film", dpi=1200, format="tiff", output=str(tmp_path / "o.tiff"),
+        gray=True, descratch=False, negative=True, autocrop=True, split=True,
+        depth16=False, frames=3, sane_opt=[], denoise=0, device=None)
+    monkeypatch.setattr(w.preview, "frames",
+                        lambda: [(120, 200, 300, 300), (120, 600, 300, 300)])
+    w.save_frames()
+
+    opts = dict(o.split("=") for o in started["args"].sane_opt)
+    assert opts["l"] == "0.00", "linker Rand muss am Fensterrand bleiben"
+    assert float(opts["x"]) == gui.FILM_MAX_X, "volle Breite scannen"
+    # Senkrecht darf eingeschraenkt werden, das ist harmlos und spart Zeit.
+    assert float(opts["t"]) > 0 and float(opts["y"]) < gui.FILM_MAX_Y
+    # Der waagerechte Nullpunkt der Zuschnitte ist damit der Fensterrand.
+    assert w._union_px[0] == 0
+
+
+def test_crop_scan_uses_the_resolution_shown_now(app, monkeypatch, tmp_path):
+    # Der zweite Durchgang ist der Moment, in dem man nach dem Blick auf
+    # die Vorschau ueber die Aufloesung entscheidet. Vorher wurde der
+    # Wert vom Vorschau-Klick benutzt und die Entscheidung verworfen.
+    import argparse
+
+    started = {}
+
+    class _Sig:
+        def connect(self, *a, **kw):
+            pass
+
+    class FakeWorker:
+        def __init__(self, args):
+            started["args"] = args
+            self.done = self.failed = self.progress = _Sig()
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(gui, "ScanWorker", FakeWorker)
+    w = gui.MainWindow()
+    w.rb_film.setChecked(True)
+    w._raw_path = str(tmp_path / "preview.tiff")
+    w._wanted = argparse.Namespace(
+        mode="film", dpi=300, format="tiff", output=str(tmp_path / "o.tiff"),
+        gray=True, descratch=False, negative=True, autocrop=True, split=True,
+        depth16=False, frames=3, sane_opt=[], denoise=0, device=None)
+    monkeypatch.setattr(w.preview, "frames", lambda: [(120, 200, 300, 300)])
+    w.cb_dpi.setCurrentText("1200")
+    w.save_frames()
+    assert started["args"].dpi == 1200
+    assert w._wanted.dpi == 1200
+    assert started["args"].mode == "film"

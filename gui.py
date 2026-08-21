@@ -1370,17 +1370,31 @@ class MainWindow(QWidget):
         if not rects or not self._raw_path:
             self.status.setText("No frames marked.")
             return
-        a = self._wanted
+        # Einstellungen jetzt lesen, nicht die vom Vorschau-Klick. Der
+        # zweite Durchgang ist der Punkt, an dem man nach dem Blick auf
+        # die Vorschau ueber die Aufloesung entscheidet - genau diese
+        # Entscheidung ging vorher verloren, samt Farbe und Format.
+        a = self.build_args()
+        a.mode = self._wanted.mode
+        self._wanted = a
         mm = 25.4 / PREVIEW_DPI
         ux0 = max(0, min(r[0] for r in rects))
         uy0 = max(0, min(r[1] for r in rects))
         ux1 = max(r[0] + r[2] for r in rects)
         uy1 = max(r[1] + r[3] for r in rects)
-        left = min(ux0 * mm, FILM_MAX_X)
+        # Waagerecht wird NICHT eingeschraenkt. Der genesys-Treiber
+        # liefert auf dem Durchlichtaufsatz eine falsche
+        # Shading-Korrektur, sobald die Scanbreite kleiner als das ganze
+        # Fenster ist: jede Sensorspalte bekommt den Faktor einer
+        # anderen, das Bild wird zu senkrechten Streifen. Gemessen bei
+        # 300 dpi Grau, ganzes Fenster sauber, x=59.44 kaputt, und zwar
+        # unabhaengig von l und t. Senkrecht einschraenken ist harmlos
+        # und spart die meiste Zeit, also nur das.
+        left = 0.0
+        width = FILM_MAX_X
         top = min(uy0 * mm, FILM_MAX_Y)
-        width = min((ux1 - ux0) * mm, FILM_MAX_X - left)
         height = min((uy1 - uy0) * mm, FILM_MAX_Y - top)
-        if width <= 1 or height <= 1:
+        if height <= 1:
             self.status.setText("No usable frames.")
             return
         import tempfile
@@ -1392,7 +1406,9 @@ class MainWindow(QWidget):
                         f"x={width:.2f}", f"y={height:.2f}"]
         job.output = tempfile.NamedTemporaryFile(suffix=".tiff",
                                                  delete=False).name
-        self._union_px = (ux0, uy0)
+        # Der Scan beginnt jetzt am linken Fensterrand, der waagerechte
+        # Nullpunkt der Zuschnitte ist also 0 und nicht mehr ux0.
+        self._union_px = (0, uy0)
         self._crop_rects = rects
         self.btn_save.setEnabled(False)
         self.btn_scan.setEnabled(False)

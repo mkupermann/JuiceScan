@@ -9,3 +9,5 @@ build/
 prefix-master/
 .DS_Store
 *.log
+*.scanlog
+.claude/

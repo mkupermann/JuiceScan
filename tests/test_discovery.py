@@ -18,7 +18,9 @@ def test_find_film_source_missing():
 def test_run_scan_missing_driver_hint(monkeypatch, tmp_path):
     monkeypatch.setattr(scan8600, "SCANIMAGE",
                         tmp_path / "nope" / "scanimage")
-    a = scan8600.parse_args(["--mode", "flatbed"])
+    # Mit --output landet auch das Messlog in tmp_path statt im Repo.
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
     with pytest.raises(scan8600.ScanError, match="Install the pkg"):
         scan8600.run_scan(a)
 

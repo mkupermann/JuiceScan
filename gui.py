@@ -64,6 +64,11 @@ DEFAULT_RES = {"flatbed": "300", "film": "2400"}
 
 
 PREVIEW_DPI = 300
+
+# Optionsliste je Gerät, prozessweit gecacht: jedes scanimage -A öffnet
+# das Gerät und bewegt den Schlitten, das soll genau einmal passieren.
+DEVICE_OPTS_CACHE = {}
+
 # Grenzen des Durchlichtfensters in mm (aus scanimage -A des 8600F).
 FILM_MAX_X, FILM_MAX_Y = 70.0, 230.0
 
@@ -91,6 +96,7 @@ class MainWindow(QWidget):
         self.setWindowTitle("JuiceScan by kupermann.com")
         self.worker = None
         self.crop_worker = None
+        self._device_opts = {}
         root = QHBoxLayout(self)
 
         # Linke Spalte: Einstellungen in ScrollArea
@@ -471,11 +477,86 @@ class MainWindow(QWidget):
             if devices:
                 self.cb_device.setCurrentIndex(0)
                 self._update_device_info(devices[0])
-            
+            self._sync_advanced_to_device()
+
         except Exception as e:
             self.cb_device.addItem("Error loading scanners")
             self.lbl_device_info.setText(f"Error: {e}")
     
+    # --- Regler aus den echten Geräteoptionen ---------------------------
+    #
+    # Vorher hingen hier feste Bereiche (-1000..1000) und ein Sharpness-
+    # Regler, den der genesys-Treiber gar nicht kennt. scanimage bricht bei
+    # einer unbekannten Option ab, nachdem es das Gerät schon geöffnet
+    # hat: der Schlitten fährt an, bleibt stehen, kein Bild. Deshalb wird
+    # die Oberfläche jetzt aus der Optionsliste des Geräts gebaut - so,
+    # wie es das GIMP-Plugin seit jeher tut.
+
+    ADVANCED_SLIDERS = (
+        ("--brightness", "slider_brightness", "lbl_brightness"),
+        ("--contrast", "slider_contrast", "lbl_contrast"),
+        ("--sharpness", "slider_sharpness", "lbl_sharpness"),
+    )
+
+    def _current_device(self):
+        if self.cb_device.count() > 0 and self.cb_device.currentIndex() >= 0:
+            return self.cb_device.currentData()
+        return None
+
+    def _device_option_index(self, device_file):
+        """{Optionsname: Option} für ein Gerät, gecacht."""
+        if device_file in DEVICE_OPTS_CACHE:
+            return DEVICE_OPTS_CACHE[device_file]
+        import os
+        if os.environ.get("JUICESCAN_NO_PROBE"):
+            # Tests sollen das Gerät nicht anfassen.
+            return {}
+        index = {}
+        try:
+            import scanoptions
+            from discovery import ScannerDiscovery
+            disc = ScannerDiscovery(str(scan8600.SCANIMAGE))
+            info = disc.get_device_info(device_file) or {}
+            index = {o.name: o for o in scanoptions.parse(info.get("raw", ""))}
+        except Exception as e:
+            print(f"Error reading device options: {e}")
+        DEVICE_OPTS_CACHE[device_file] = index
+        return index
+
+    def _sync_advanced_to_device(self):
+        """Bereiche der Enhancement-Regler aus dem Gerät übernehmen und
+        nicht vorhandene Optionen abschalten."""
+        device_file = self._current_device()
+        if not device_file:
+            return
+        index = self._device_option_index(device_file)
+        if not index:
+            # Ohne verwertbare Liste nichts anfassen, sonst sperren wir
+            # Regler auf Verdacht.
+            return
+        self._device_opts = index
+        for flag, slider_name, label_name in self.ADVANCED_SLIDERS:
+            slider = getattr(self, slider_name)
+            label = getattr(self, label_name)
+            opt = index.get(flag)
+            name = flag.lstrip("-")
+            if opt is None or opt.kind != "range" or opt.hi <= opt.lo:
+                slider.blockSignals(True)
+                slider.setValue(0)
+                slider.blockSignals(False)
+                slider.setEnabled(False)
+                slider.setToolTip(
+                    f"This scanner has no '{name}' option, so it is disabled.")
+                label.setText("n/a")
+                continue
+            lo, hi = int(opt.lo), int(opt.hi)
+            slider.setEnabled(True)
+            slider.setToolTip(f"{name}: {lo}..{hi} (from the driver)")
+            value = min(max(slider.value(), lo), hi)
+            slider.setRange(lo, hi)
+            slider.setValue(value)
+            label.setText(str(slider.value()))
+
     def _update_device_info(self, device):
         """Aktualisiert die Geräteinformationen."""
         info_parts = [
@@ -714,6 +795,7 @@ class MainWindow(QWidget):
                     if dev.device_file == device_file:
                         self._update_device_info(dev)
                         break
+                self._sync_advanced_to_device()
                 return
     
     def save_settings(self):
@@ -917,6 +999,15 @@ class MainWindow(QWidget):
         
         # HDR-Modus?
         if self.ck_hdr_mode.isChecked():
+            if self.ck_depth16.isChecked():
+                QMessageBox.warning(
+                    self, "HDR and 16 bit",
+                    "The driver applies brightness only to 8-bit scans, so "
+                    "both HDR exposures would come back identical. Turn off "
+                    "16 bit or turn off HDR.")
+                self.btn_scan.setEnabled(True)
+                self.progress.setRange(0, 1)
+                return
             self._hdr_index = 0
             self._hdr_total = 2
             self._hdr_results = []
@@ -964,13 +1055,24 @@ class MainWindow(QWidget):
         self.worker.start()
     
     def _get_hdr_exposures(self):
-        """Berechnet die Belichtungswerte für die HDR-Scans."""
-        # Basiswert und Kompensation für den zweiten Scan
-        base_brightness = self.slider_brightness.value()
+        """Berechnet die Belichtungswerte für die HDR-Scans.
+
+        Der Regelbereich kommt vom Treiber, nicht aus einer Wunschzahl.
+        Früher wurde hier fest auf +-300 gerechnet - außerhalb der
+        genesys-Spanne von -100..100. scanimage kappt das still, beide
+        Belichtungen landen auf demselben Wert und HDR tut gar nichts.
+        """
+        lo = self.slider_brightness.minimum()
+        hi = self.slider_brightness.maximum()
+        base = min(max(self.slider_brightness.value(), lo), hi)
         comp_value = self.slider_hdr_comp.value()
-        # Map slider value (-100 to 100) to brightness offset (-300 to 300)
-        comp_offset = int(comp_value / 100 * 300)
-        return [base_brightness, base_brightness + comp_offset]
+        comp_offset = int(comp_value / 100.0 * (hi - lo) / 2.0)
+        second = min(max(base + comp_offset, lo), hi)
+        if second == base:
+            self.status.setText(
+                "HDR: both exposures land on the same brightness value "
+                f"({base}); the driver range is {lo}..{hi}.")
+        return [base, second]
     
     def _start_next_hdr_scan(self):
         """Startet den nächsten Scan im HDR-Modus."""
@@ -1103,6 +1205,8 @@ class MainWindow(QWidget):
     
     def _blend_exposures(self, arr1, arr2):
         """Vereinigt zwei Belichtungen mit einfachem Blending."""
+        import numpy as np
+
         # Konvertiere zu Float für die Berechnungen
         arr1_f = arr1.astype(np.float32) / 255.0
         arr2_f = arr2.astype(np.float32) / 255.0
@@ -1192,9 +1296,10 @@ class MainWindow(QWidget):
         if self._raw_path:
             self._show_editor(self._raw_path)
             return
-        self.status.setText(f"Done ({len(paths)} image"
-                            + ("s" if len(paths) != 1 else "") + "):\n"
-                            + "\n".join(paths))
+        self._set_status_with_notes(
+            f"Done ({len(paths)} image"
+            + ("s" if len(paths) != 1 else "") + "):\n"
+            + "\n".join(paths))
         self.editor_hint.hide()
         self.preview.set_image(QPixmap(
             self._contact_sheet(paths) if len(paths) > 1 else paths[0]))
@@ -1212,10 +1317,8 @@ class MainWindow(QWidget):
             autocrop.detect_film_frames(arr, expected or None))
         self.editor_hint.show()
         self.btn_save.setEnabled(True)
-        text = "Check the frames or draw your own, then save the crops."
-        if scan8600.LAST_WARNINGS:
-            text += "\n\n" + "\n".join(scan8600.LAST_WARNINGS)
-        self.status.setText(text)
+        self._set_status_with_notes(
+            "Check the frames or draw your own, then save the crops.")
 
     def save_frames(self):
         # Ein einziger Scan über die Gesamtfläche aller Rahmen. Jede neue
@@ -1318,11 +1421,9 @@ class MainWindow(QWidget):
         self.progress.setValue(1)
         self.btn_scan.setEnabled(True)
         self.btn_save.setEnabled(True)
-        text = (f"{len(outs)} image" + ("s" if len(outs) != 1 else "")
-                + " saved:\n" + "\n".join(outs))
-        if scan8600.LAST_WARNINGS:
-            text += "\n\n" + "\n".join(scan8600.LAST_WARNINGS)
-        self.status.setText(text)
+        self._set_status_with_notes(
+            f"{len(outs)} image" + ("s" if len(outs) != 1 else "")
+            + " saved:\n" + "\n".join(outs))
         self.editor_hint.hide()
         if outs:
             self.preview.clear_frames()
@@ -1353,6 +1454,18 @@ class MainWindow(QWidget):
         out = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         sheet.save(out.name)
         return out.name
+
+    def _set_status_with_notes(self, text):
+        """Statuszeile plus Treiberwarnungen plus Pfad zum Messlog.
+
+        Die Warnungen waren bisher nur im Editor- und Crop-Pfad sichtbar,
+        beim einfachen Flachbett-Scan sind sie stillschweigend verfallen.
+        """
+        if scan8600.LAST_WARNINGS:
+            text += "\n\n" + "\n".join(scan8600.LAST_WARNINGS)
+        if getattr(scan8600, "LAST_LOG_PATH", None):
+            text += f"\n\nScan log: {scan8600.LAST_LOG_PATH}"
+        self.status.setText(text)
 
     def scan_failed(self, msg):
         self.progress.setRange(0, 1)

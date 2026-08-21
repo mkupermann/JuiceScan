@@ -61,3 +61,27 @@ def test_parses_short_geometry_options():
 def test_source_choices_keep_spaces():
     o = _by_name(scanoptions.parse(SAMPLE))["--source"]
     assert "Transparency Adapter Infrared" in o.choices
+
+
+# Genau so gibt der genesys-Treiber des CanoScan 8600F seine Bereiche aus.
+HARDWARE = """
+Options specific to device `genesys:libusb:000:002':
+  Enhancement:
+    --brightness -100..100 (in steps of 1) [0]
+        Controls the brightness of the acquired image.
+  Extras:
+    --expiration-time -1..30000 (in steps of 1) [60]
+        Time (in minutes) before a cached calibration expires.
+"""
+
+
+def test_parses_quantised_range():
+    o = _by_name(scanoptions.parse(HARDWARE))["--brightness"]
+    assert o.kind == "range"
+    assert (o.lo, o.hi) == (-100.0, 100.0)
+    assert o.default == "0"
+
+
+def test_parses_quantised_range_with_negative_lower_bound():
+    o = _by_name(scanoptions.parse(HARDWARE))["--expiration-time"]
+    assert (o.lo, o.hi) == (-1.0, 30000.0)

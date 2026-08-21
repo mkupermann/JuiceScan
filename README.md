@@ -35,6 +35,13 @@ Silicon and Windows 11.
   editor, then the scanner only scans those areas at full resolution
 - Scanner selection with discovery, handles USB re-numbering
 - Batch mode, presets, persistent settings, custom scan areas
+- Controls are built from your scanner. A slider the driver does not
+  offer is switched off instead of sent, and a value out of range is
+  clamped and named. Before, one unsupported option aborted the scan
+  after the carriage had already moved
+- Every scan writes a log beside the image: progress with timestamps,
+  and how long each stage took. When something is slow you can see
+  where, instead of guessing
 - HDR multi-exposure for dense negatives, two passes merged (new, not
   yet verified on hardware)
 - The lamp warm-up is shown for what it is. The driver scans one line
@@ -140,19 +147,46 @@ behind it is covered by unit tests.
   frame at 2400 dpi. VueScan is faster because Hamrick spent twenty
   years tuning motor profiles per device. We measured where our time
   goes, took the safe gains, and left the risky motor tricks alone.
+- The first scan after a break is slow and the carriage moves without
+  producing anything. That is the driver warming the lamp: it scans one
+  line over and over until the brightness stops drifting. Measured on
+  a 40x40 mm flatbed scan: 36.7 of 39.5 seconds passed before the first
+  byte arrived. Scan again right away and it is 10.6 of 12.6. Nothing
+  in this app can shorten it, so the window says what is happening
+  instead of pretending to scan.
 - White documents on the white lid confuse the flatbed autocrop. A
   black sheet of paper behind the document fixes it.
 - Switching between JuiceScan and VueScan can leave the scanner in a
   state the other driver cannot open. One power-cycle fixes it.
 
+## When a scan is slow
+
+Every scan writes a `.scanlog` next to the output file. It carries the
+progress reports from the driver with timestamps, and the duration of
+each stage:
+
+    stage probe 0.57s
+    t=10.61s progress=4.9% rss=27.8MB
+    t=12.31s progress=100.0% rss=27.8MB
+    scan pass 12.63s rc=0 652.9KB
+    stage decode 0.06s
+    stage save 0.00s
+
+A flat stretch before the first `progress` line is the lamp warm-up. A
+plateau in the middle would be something else, and worth reporting.
+
+The progress is printed once per driver read, so the buffer size sets
+how finely you can see. For a close look set `JUICESCAN_BUFFER_KB=32`;
+the default of 4096 gives one data point on a small scan.
+
 ## Tests
 
     .venv/bin/python -m pytest tests/ -q
 
-48 tests, plus hardware runs for detection, flatbed, transparency with
-scratch removal, negative inversion and 16-bit output. Only what ran
-on the real machine counts as verified. The rest is listed as what it
-is.
+77 tests, plus hardware runs for detection, flatbed, transparency with
+scratch removal, negative inversion, 16-bit output, and a 6x6 black
+and white strip through the whole film path. Only what ran on the real
+machine counts as verified. The rest is listed as what it is.
 
 ## License
 

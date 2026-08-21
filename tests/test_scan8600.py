@@ -112,3 +112,60 @@ def test_save_array_handles_8bit_rgb(tmp_path):
     p = tmp_path / "y.tiff"
     scan8600._save_array(np.zeros((4, 4, 3), dtype=np.uint8), a, p)
     assert p.exists()
+
+
+# --- Warmlauf sichtbar machen, Geräte-Öffnungen reduzieren ---------------
+
+
+def test_options_are_probed_once_per_device(monkeypatch):
+    calls = []
+
+    def fake_probe(retries=3):
+        calls.append("no-device")
+        return DEVICE_OPTS
+
+    scan8600.clear_options_cache()
+    monkeypatch.setattr(scan8600, "_probe_options", fake_probe)
+    scan8600.setup_logging(scan8600.parse_args(["--mode", "flatbed"]))
+    assert scan8600.probe_options() == DEVICE_OPTS
+    assert scan8600.probe_options() == DEVICE_OPTS
+    assert len(calls) == 1
+    scan8600.clear_options_cache()
+    assert scan8600.probe_options() == DEVICE_OPTS
+    assert len(calls) == 2
+
+
+def test_scan_run_reports_progress(tmp_path):
+    # Der Fortschritt ist das einzige Signal, das den Warmlauf vom
+    # eigentlichen Scan trennt: vor dem ersten Prozentwert kommen keine
+    # Bilddaten, obwohl der Schlitten fährt.
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
+    scan8600.setup_logging(a)
+    seen = []
+    fake = ["python3", "-c",
+            "import sys\n"
+            "for p in (10.0, 55.5, 100.0):\n"
+            "    sys.stderr.write('Progress: %5.1f%%\\r' % p)\n"
+            "    sys.stderr.flush()\n"
+            "sys.stdout.buffer.write(b'DATA')\n"]
+    rc, payload, err = scan8600.scan_run(fake, on_progress=lambda p, t: seen.append(p))
+    assert rc == 0 and payload == b"DATA"
+    assert [p for p in seen] == [10.0, 55.5, 100.0]
+    # Progress darf nicht im Fehlertext landen.
+    assert err == ""
+
+
+def test_progress_callback_errors_do_not_kill_the_scan(tmp_path):
+    a = scan8600.parse_args(
+        ["--mode", "flatbed", "--output", str(tmp_path / "x.tiff")])
+    scan8600.setup_logging(a)
+    fake = ["python3", "-c",
+            "import sys; sys.stderr.write('Progress:  50.0%\\r'); "
+            "sys.stderr.flush(); sys.stdout.buffer.write(b'DATA')\n"]
+
+    def boom(percent, elapsed):
+        raise RuntimeError("callback exploded")
+
+    rc, payload, _ = scan8600.scan_run(fake, on_progress=boom)
+    assert rc == 0 and payload == b"DATA"

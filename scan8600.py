@@ -181,6 +181,26 @@ def find_film_source_general(options_text):
     return _pick_source(options_text, r"transparen|film|\bta\b")
 
 
+# Jedes scanimage -A öffnet das Gerät. Der Warmlauf faellt dabei zwar
+# nicht an (gemessen: 0,6 s), aber HDR, Batch und der Crop-Pass haben
+# bisher vor jedem einzelnen Pass neu gesondiert. Einmal pro Prozess
+# reicht.
+_OPTS_CACHE = {}
+
+
+def clear_options_cache():
+    _OPTS_CACHE.clear()
+
+
+def probe_options(device=None):
+    key = device or ""
+    if key not in _OPTS_CACHE:
+        with stage("probe"):
+            _OPTS_CACHE[key] = (_probe_device_options(device) if device
+                                else _probe_options())
+    return _OPTS_CACHE[key]
+
+
 def _probe_device_options(device_file, retries=3):
     """Probe options for a specific device."""
     import time
@@ -319,7 +339,7 @@ class stage:
 _PROGRESS = re.compile(r"Progress:\s*([\d.]+)%")
 
 
-def _pump_stderr(stream, log, t0, sink):
+def _pump_stderr(stream, log, t0, sink, on_progress=None):
     """Liest stderr mit, zeitstempelt jede Fortschrittsmeldung und hält
     Progress-Zeilen aus dem Fehlertext heraus."""
     import os
@@ -343,18 +363,28 @@ def _pump_stderr(stream, log, t0, sink):
             line, buf = buf.split("\n", 1)
             m = _PROGRESS.search(line)
             if m:
-                log.debug("t=%.2fs progress=%s%% rss=%s",
-                          time.monotonic() - t0, m.group(1),
+                elapsed = time.monotonic() - t0
+                log.debug("t=%.2fs progress=%s%% rss=%s", elapsed, m.group(1),
                           _human(_rss_bytes()))
+                if on_progress is not None:
+                    try:
+                        on_progress(float(m.group(1)), elapsed)
+                    except Exception:
+                        pass
             elif line.strip():
                 sink.append(line)
     if buf.strip() and not _PROGRESS.search(buf):
         sink.append(buf)
 
 
-def scan_run(cmd):
+def scan_run(cmd, on_progress=None):
     """Startet scanimage für einen Scanpass und protokolliert dabei die
-    Fortschrittsspur. Rückgabe: (returncode, tiff_bytes, stderr_text)."""
+    Fortschrittsspur. Rückgabe: (returncode, tiff_bytes, stderr_text).
+
+    on_progress(prozent, sekunden) wird aus dem Reader-Thread gerufen,
+    sobald scanimage Daten meldet. Bis dahin läuft im Treiber der
+    Lampen-Warmlauf: der Schlitten fährt, es kommt aber nichts an.
+    """
     import os
     import threading
     import time
@@ -367,7 +397,8 @@ def scan_run(cmd):
     proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
     pump = threading.Thread(target=_pump_stderr,
-                            args=(proc.stderr, log, t0, err), daemon=True)
+                            args=(proc.stderr, log, t0, err, on_progress),
+                            daemon=True)
     pump.start()
     payload = proc.stdout.read()
     proc.stdout.close()
@@ -449,8 +480,8 @@ def _open_pass(payload):
     return Image.open(io.BytesIO(payload))
 
 
-def _run_pass(a, source, device=None, retries=1, tag="scan"):
-    rc, payload, err = scan_run(build_command(a, source, device))
+def _run_pass(a, source, device=None, retries=1, tag="scan", on_progress=None):
+    rc, payload, err = scan_run(build_command(a, source, device), on_progress)
     if rc != 0:
         if "no SANE devices" in err:
             raise ScanError(
@@ -484,19 +515,22 @@ def _run_pass(a, source, device=None, retries=1, tag="scan"):
                         if dev.device_file == device:
                             # Gleiches Gerät nochmal versuchen
                             return _run_pass(a, source, device, retries - 1,
-                                             tag)
+                                             tag, on_progress)
                         else:
                             # Neues Gerät probieren
                             new_rc, new_payload, _ = scan_run(
-                                build_command(a, source, dev.device_file))
+                                build_command(a, source, dev.device_file),
+                                on_progress)
                             if new_rc == 0:
                                 return new_payload
                 except Exception:
                     pass
                 # Wenn nichts funktioniert, nochmal mit originalem device
-                return _run_pass(a, source, device, retries - 1, tag)
+                return _run_pass(a, source, device, retries - 1, tag,
+                                 on_progress)
             else:
-                return _run_pass(a, source, device, retries - 1, tag)
+                return _run_pass(a, source, device, retries - 1, tag,
+                                 on_progress)
         raise ScanError(err)
     return payload
 
@@ -522,7 +556,7 @@ def _probe_options(retries=3):
                     + probe.stderr.decode(errors="replace"))
 
 
-def run_scan(a):
+def run_scan(a, on_progress=None):
     LAST_WARNINGS.clear()
     log = setup_logging(a)
     log.info("run_scan mode=%s dpi=%s gray=%s buffer=%skB",
@@ -545,11 +579,7 @@ def run_scan(a):
     
     # Probe device options to find available sources
     # If device is specified, use it; otherwise probe without device (uses default)
-    with stage("probe"):
-        if device:
-            opts = _probe_device_options(device)
-        else:
-            opts = _probe_options()
+    opts = probe_options(device)
 
     # Optionen gegen das echte Gerät prüfen, bevor scanimage sie sieht.
     # Eine unbekannte Option lässt scanimage abbrechen, nachdem es das
@@ -574,7 +604,8 @@ def run_scan(a):
     
     try:
         with stage("scan-visible"):
-            tiff_bytes = _run_pass(a, source, device, tag="visible")
+            tiff_bytes = _run_pass(a, source, device, tag="visible",
+                                   on_progress=on_progress)
         cleaned = None
         if ir_source:
             import numpy as np
@@ -583,7 +614,8 @@ def run_scan(a):
             ir_args = argparse.Namespace(**vars(a))
             ir_args.gray = True
             with stage("scan-infrared"):
-                ir_bytes = _run_pass(ir_args, ir_source, device, tag="ir")
+                ir_bytes = _run_pass(ir_args, ir_source, device, tag="ir",
+                                     on_progress=on_progress)
             with stage("decode-descratch"):
                 vis = np.array(_open_pass(tiff_bytes).convert("RGB"))
                 ir = np.array(_open_pass(ir_bytes).convert("L"))

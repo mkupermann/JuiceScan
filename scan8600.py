@@ -438,7 +438,17 @@ def _escalate_after(proc, kill_after):
         pass
 
 
-def cancel_scan(kill_after=45.0, wait=True):
+# Der Treiber prueft das Abbruchflag nicht, solange er im
+# Lampen-Warmlauf steckt, und der laeuft laut genesys bis zu 65 s
+# (WARMUP_TIME). Gemessen: ein Abbruch waehrend des Warmlaufs wurde bei
+# 45 s Karenz mit SIGKILL beendet, der Schlitten bleibt dann stehen.
+# Ausgerechnet der Warmlauf ist der Moment, in dem man Stop drueckt -
+# da sieht es aus, als haenge das Geraet. Deshalb liegt die Karenz
+# ueber WARMUP_TIME.
+DEFAULT_KILL_AFTER = 75.0
+
+
+def cancel_scan(kill_after=DEFAULT_KILL_AFTER, wait=True):
     """Bricht den laufenden Pass ab. True, wenn etwas lief.
 
     Genau EIN SIGTERM. scanimage faengt es ab und ruft sane_cancel, der

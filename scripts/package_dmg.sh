@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_PREFIX=/usr/local/canoscan8600f
 STAGE="$ROOT/build/dmg"
 SRC="$ROOT/vendor/sane-backends"
-VERSION="1.3"
+VERSION="1.3.1"
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE/payload"

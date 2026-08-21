@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 *.tiff
 *.png
+# Ausnahme: die Bildmarke ist Quellmaterial, kein Scan-Ergebnis.
+!assets/*.png
 *.jpg
 build/
 prefix-master/
